@@ -1,0 +1,25 @@
+{
+    "name": "azure-pricing-backend",
+    "version": "1.0.0",
+    "description": "Backend for Azure Pricing Calculator — caches Azure pricing data in TursoDB",
+    "main": "src/index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node src/index.js",
+        "dev": "node --watch src/index.js",
+        "sync": "node -e \"import('./src/sync.js').then(m => m.runFullSync())\"",
+        "sync:service": "node -e \"import('./src/sync.js').then(m => m.syncService(process.argv[1]))\" --"
+    },
+    "dependencies": {
+        "@libsql/client": "^0.14.0",
+        "bcrypt": "^6.0.0",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.7",
+        "express": "^4.21.2",
+        "google-auth-library": "^10.5.0",
+        "jsonwebtoken": "^9.0.3",
+        "node-cron": "^3.0.3",
+        "node-fetch": "^3.3.2",
+        "pg": "^8.18.0"
+    }
+}

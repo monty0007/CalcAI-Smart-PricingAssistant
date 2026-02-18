@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+
+# Vite cache
+.vite/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+ingestion*.log
+update.log
+
+# Samples and temporary files
+*.json
+!package.json
+!package-lock.json
+!composer.json
+!checkpoint.json
+# Wait, checkpoint.json might be needed to resume, but it's volatile. 
+# User asked for "bigger files those are for sampels".
+
+*.txt
+!README.md
+!requirements.txt

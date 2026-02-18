@@ -1,0 +1,4 @@
+node_modules
+.env
+
+azure_pricing_dump.json
