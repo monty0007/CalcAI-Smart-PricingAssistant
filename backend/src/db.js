@@ -186,7 +186,7 @@ export async function queryPrices({
         conditions.push("p.type != 'DevTestConsumption'");
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    let where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // Dynamic Currency Conversion Logic
     // IF currencyCode is USD, we just return the columns.
@@ -200,7 +200,7 @@ export async function queryPrices({
 
     where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    sql = `
+    let sql = `
         SELECT p.*
         FROM azure_prices p
         ${where} 
