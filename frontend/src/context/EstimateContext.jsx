@@ -4,12 +4,26 @@ import { useAuth } from './AuthContext';
 
 const EstimateContext = createContext(null);
 
-const initialState = {
+const defaultState = {
     items: [],
     currency: 'INR',
     region: 'centralindia',
     refreshing: false,
 };
+
+function init() {
+    try {
+        const savedItems = localStorage.getItem('azure_estimate_items');
+        return {
+            items: savedItems ? JSON.parse(savedItems) : [],
+            currency: localStorage.getItem('azure_estimate_currency') || 'INR',
+            region: localStorage.getItem('azure_estimate_region') || 'centralindia',
+            refreshing: false,
+        };
+    } catch {
+        return defaultState;
+    }
+}
 
 function estimateReducer(state, action) {
     switch (action.type) {
@@ -61,7 +75,18 @@ function estimateReducer(state, action) {
 }
 
 export function EstimateProvider({ children }) {
-    const [state, dispatch] = useReducer(estimateReducer, initialState);
+    const [state, dispatch] = useReducer(estimateReducer, defaultState, init);
+
+    // Save state to localStorage whenever it changes
+    useEffect(() => {
+        try {
+            localStorage.setItem('azure_estimate_items', JSON.stringify(state.items));
+            localStorage.setItem('azure_estimate_currency', state.currency);
+            localStorage.setItem('azure_estimate_region', state.region);
+        } catch (err) {
+            console.error("Failed to save to localStorage:", err);
+        }
+    }, [state.items, state.currency, state.region]);
     const { user, token } = useAuth();
 
     // Load user preferences on login

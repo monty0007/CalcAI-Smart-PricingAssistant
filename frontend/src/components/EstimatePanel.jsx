@@ -3,6 +3,9 @@ import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check } from 'lucide
 import { useEstimate } from '../context/EstimateContext';
 import { formatPrice } from '../services/azurePricingApi';
 
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+
 export default function EstimatePanel() {
     const {
         items, currency, removeItem, updateItem,
@@ -25,37 +28,100 @@ export default function EstimatePanel() {
         setEditPrice('');
     }
 
-    function handleExport() {
-        const lines = [
-            'Azure Pricing Estimate',
-            `Currency: ${currency}`,
-            `Generated: ${new Date().toLocaleDateString()}`,
-            '',
-            'Services:',
-            '─'.repeat(60),
+    async function handleExportExcel() {
+        if (items.length === 0) return;
+
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('Estimate');
+
+        ws.columns = [
+            { width: 22 }, // Category
+            { width: 25 }, // Type
+            { width: 20 }, // Custom name
+            { width: 18 }, // Region
+            { width: 65 }, // Description
+            { width: 22 }, // Monthly cost
+            { width: 22 }  // Upfront cost
         ];
 
-        items.forEach((item, i) => {
-            const monthlyPrice = calculateItemMonthly(item);
-            lines.push(`${i + 1}. ${item.serviceName} - ${item.skuName || item.meterName}`);
-            lines.push(`   Region: ${item.location || item.armRegionName}`);
-            lines.push(`   Unit Price: ${formatPrice(item.retailPrice, currency)} / ${item.unitOfMeasure}`);
-            lines.push(`   Qty: ${item.quantity} | Hours/Mo: ${item.hoursPerMonth}`);
-            lines.push(`   Monthly: ${formatPrice(monthlyPrice, currency)}`);
-            lines.push('');
+        // Title row
+        const titleRow = ws.addRow(["Microsoft Azure Estimate"]);
+        titleRow.font = { size: 14, color: { argb: 'FF333333' } };
+        ws.mergeCells('A1:G1');
+
+        // Subtitle
+        const subtitleRow = ws.addRow(["Your Estimate"]);
+        subtitleRow.font = { size: 12, color: { argb: 'FF333333' } };
+        ws.mergeCells('A2:G2');
+
+        // Header
+        const headerRow = ws.addRow([
+            "Service category", "Service type", "Custom name", "Region", "Description", "Estimated monthly cost", "Estimated upfront cost"
+        ]);
+
+        headerRow.eachCell((cell) => {
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFD9EAF7' } // Light Azure Blue
+            };
+            cell.font = { size: 11, color: { argb: 'FF333333' } };
+            cell.border = {
+                bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+            };
         });
 
-        lines.push('─'.repeat(60));
-        lines.push(`TOTAL ESTIMATED MONTHLY COST: ${formatPrice(totalMonthlyCost, currency)}`);
-        lines.push(`TOTAL ESTIMATED YEARLY COST: ${formatPrice(totalMonthlyCost * 12, currency)}`);
+        items.forEach(item => {
+            const monthlyPrice = calculateItemMonthly(item);
 
-        const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `azure-estimate-${Date.now()}.txt`;
-        a.click();
-        URL.revokeObjectURL(url);
+            let description = '';
+            if (item.serviceFamily === 'Compute') {
+                description = `${item.quantity || 1} ${item.skuName || item.meterName} x ${item.hoursPerMonth || 730} Hours (Pay as you go)`;
+            } else {
+                description = `${item.quantity || 1} x ${item.skuName || item.meterName}`;
+            }
+
+            const dataRow = ws.addRow([
+                item.serviceFamily || 'Other',
+                item.serviceName || '',
+                '', // Custom Name
+                item.location || item.armRegionName || '',
+                description,
+                formatPrice(monthlyPrice, currency),
+                formatPrice(0, currency)
+            ]);
+
+            dataRow.getCell(5).alignment = { wrapText: true, vertical: 'top' };
+            dataRow.eachCell(cell => {
+                cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+                cell.border = { bottom: { style: 'thin', color: { argb: 'FFEEEEEE' } } };
+            });
+        });
+
+        // Add Support row mimicking official format
+        const supportRow = ws.addRow(["Support", "", "", "Support", "", formatPrice(0, currency), formatPrice(0, currency)]);
+        supportRow.eachCell(cell => {
+            cell.border = { bottom: { style: 'thin', color: { argb: 'FFEEEEEE' } } };
+        });
+
+        ws.addRow([]);
+
+        // Footer summary blocks
+        ws.addRow(["", "", "", "Licensing Program", "Microsoft Customer Agreement (MCA)", "", ""]);
+        ws.addRow(["", "", "", "Billing Account", "", "", ""]);
+        ws.addRow(["", "", "", "Billing Profile", "", "", ""]);
+
+        const totalRow = ws.addRow(["", "", "", "Total", "", formatPrice(totalMonthlyCost, currency), formatPrice(0, currency)]);
+
+        // Add borders to total row from D to G
+        totalRow.getCell(4).border = { top: { style: 'medium', color: { argb: 'FF999999' } } };
+        totalRow.getCell(5).border = { top: { style: 'medium', color: { argb: 'FF999999' } } };
+        totalRow.getCell(6).border = { top: { style: 'medium', color: { argb: 'FF999999' } } };
+        totalRow.getCell(7).border = { top: { style: 'medium', color: { argb: 'FF999999' } } };
+
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        saveAs(blob, `Azure_Estimate_${new Date().toISOString().split('T')[0]}.xlsx`);
     }
 
     function calculateItemMonthly(item) {
@@ -208,9 +274,9 @@ export default function EstimatePanel() {
                         ≈ {formatPrice(totalMonthlyCost * 12, currency)} / year
                     </div>
                     <div className="estimate-actions">
-                        <button className="btn-primary" onClick={handleExport}>
+                        <button className="btn-primary" onClick={handleExportExcel}>
                             <Download size={14} />
-                            Export
+                            Convert to Excel
                         </button>
                         <button className="btn-secondary" onClick={clearAll}>
                             <RotateCcw size={14} />
