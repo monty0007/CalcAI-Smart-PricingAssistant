@@ -119,6 +119,40 @@ export async function initDB() {
     ON azure_prices(service_name, type, currency_code, is_active);
     `);
 
+    // ── vm_types table (populated by scripts/update_vm_types.py) ──
+    await query(`
+    CREATE TABLE IF NOT EXISTS vm_types (
+        name                    TEXT PRIMARY KEY,
+        cpu_desc                TEXT,
+        cpu_architecture        TEXT,
+        numa_nodes              INTEGER,
+        perf_score              NUMERIC,
+        hyper_v_gen             TEXT,
+        max_net_interfaces      INTEGER,
+        rdma_enabled            BOOLEAN,
+        accelerated_net         BOOLEAN,
+        combined_iops           BIGINT,
+        uncached_disk_iops      BIGINT,
+        combined_write_bytes    BIGINT,
+        combined_read_bytes     BIGINT,
+        acus                    INTEGER,
+        gpus                    INTEGER,
+        gpu_type                TEXT,
+        gpu_ram_mb              NUMERIC,
+        gpu_total_ram_mb        NUMERIC,
+        canonical_name          TEXT,
+        number_of_cores         INTEGER,
+        os_disk_size_mb         INTEGER,
+        resource_disk_size_mb   INTEGER,
+        memory_mb               INTEGER,
+        max_data_disk_count     INTEGER,
+        support_premium_disk    BOOLEAN,
+        similar_azure_vms       TEXT[],
+        modified_date           DATE,
+        updated_at              TIMESTAMPTZ DEFAULT NOW()
+    );
+    `);
+
     // 3. User Table
     await query(`
     CREATE TABLE IF NOT EXISTS users (

@@ -203,3 +203,47 @@ export function formatPrice(price, currencyCode = 'USD') {
   if (price >= 1000) return `${symbol}${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return `${symbol}${price.toFixed(2)}`;
 }
+
+/**
+ * Fetch paginated VM list with Linux/Windows prices and best region
+ */
+export async function fetchVmList({
+  currency = 'USD', region = 'eastus', search = '', limit = 100, offset = 0,
+  minVcpu, maxVcpu, minMemory, maxMemory
+} = {}) {
+  const paramsObj = { currency, region, limit, offset };
+  if (search) paramsObj.search = search;
+  if (minVcpu) paramsObj.minVcpu = minVcpu;
+  if (maxVcpu) paramsObj.maxVcpu = maxVcpu;
+  if (minMemory) paramsObj.minMemory = minMemory;
+  if (maxMemory) paramsObj.maxMemory = maxMemory;
+
+  const params = new URLSearchParams(paramsObj);
+  const response = await fetch(`${BASE_URL}/vm-list?${params.toString()}`);
+  if (!response.ok) throw new Error(`VM list error: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Fetch regional prices for up to 2 SKUs for comparison view
+ */
+export async function fetchVmComparison({ skus = [], currency = 'USD', os = 'linux' } = {}) {
+  const params = new URLSearchParams({ skus: skus.join(','), currency, os });
+  const response = await fetch(`${BASE_URL}/vm-compare?${params.toString()}`);
+  if (!response.ok) throw new Error(`VM compare error: ${response.status}`);
+  return response.json();
+}
+
+/**
+ * Fetch regional pricing matrix for selected VMs
+ * @param {Object} params { skus: ['Standard_A1', 'Standard_A2'], regions: ['centralindia', 'southindia'], currency: 'INR' }
+ */
+export async function fetchVmPricingCompare(params) {
+  const response = await fetch(`${BASE_URL}/vms/compare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) throw new Error(`Pricing compare API error: ${response.status}`);
+  return response.json();
+}

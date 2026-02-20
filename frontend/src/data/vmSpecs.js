@@ -1,6 +1,84 @@
-
 export const VM_SPECS = {
-    // ── General Purpose (A, D, B series) ──
+    // ── Entry-level A series (legacy) ──
+    'Standard_A0': {
+        vCpus: 1, memory: 0.75, type: 'General Purpose', score: 50,
+        architecture: 'x64', hyperVGen: 'V1', acus: 50, gpus: 0,
+        maxNics: 1, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '20 GiB', maxDisks: 1, premiumDisk: false,
+        uncachedIops: 500, uncacheThroughput: '10 MiB/s'
+    },
+    'Standard_A1': {
+        vCpus: 1, memory: 1.75, type: 'General Purpose', score: 100,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 1, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '70 GiB', maxDisks: 2, premiumDisk: false,
+        uncachedIops: 500, uncacheThroughput: '10 MiB/s'
+    },
+    'Standard_A2': {
+        vCpus: 2, memory: 3.5, type: 'General Purpose', score: 200,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 2, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '135 GiB', maxDisks: 4, premiumDisk: false,
+        uncachedIops: 1000, uncacheThroughput: '20 MiB/s'
+    },
+    'Standard_A3': {
+        vCpus: 4, memory: 7, type: 'General Purpose', score: 400,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 4, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '285 GiB', maxDisks: 8, premiumDisk: false,
+        uncachedIops: 2000, uncacheThroughput: '40 MiB/s'
+    },
+    'Standard_A4': {
+        vCpus: 8, memory: 14, type: 'General Purpose', score: 800,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 8, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '605 GiB', maxDisks: 16, premiumDisk: false,
+        uncachedIops: 4000, uncacheThroughput: '80 MiB/s'
+    },
+    'Standard_A5': {
+        vCpus: 2, memory: 14, type: 'Memory Optimized', score: 250,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 4, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '135 GiB', maxDisks: 4, premiumDisk: false,
+        uncachedIops: 1000, uncacheThroughput: '20 MiB/s'
+    },
+    'Standard_A6': {
+        vCpus: 4, memory: 28, type: 'Memory Optimized', score: 500,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 8, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '285 GiB', maxDisks: 8, premiumDisk: false,
+        uncachedIops: 2000, uncacheThroughput: '40 MiB/s'
+    },
+    'Standard_A7': {
+        vCpus: 8, memory: 56, type: 'Memory Optimized', score: 1000,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 8, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '605 GiB', maxDisks: 16, premiumDisk: false,
+        uncachedIops: 4000, uncacheThroughput: '80 MiB/s'
+    },
+    'Standard_A2m_v2': {
+        vCpus: 2, memory: 16, type: 'Memory Optimized', score: 220,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 2, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '20 GiB', maxDisks: 4, premiumDisk: false,
+        uncachedIops: 2000, uncacheThroughput: '20 MiB/s'
+    },
+    'Standard_A4m_v2': {
+        vCpus: 4, memory: 32, type: 'Memory Optimized', score: 440,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 4, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '40 GiB', maxDisks: 8, premiumDisk: false,
+        uncachedIops: 4000, uncacheThroughput: '40 MiB/s'
+    },
+    'Standard_A8m_v2': {
+        vCpus: 8, memory: 64, type: 'Memory Optimized', score: 880,
+        architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
+        maxNics: 8, rdma: false, acceleratedNet: false,
+        osDiskSize: '1023 GiB', resDiskSize: '80 GiB', maxDisks: 16, premiumDisk: false,
+        uncachedIops: 8000, uncacheThroughput: '80 MiB/s'
+    },
+
+
     'Standard_A1_v2': {
         vCpus: 1, memory: 2, type: 'General Purpose', score: 100,
         architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
@@ -8,6 +86,7 @@ export const VM_SPECS = {
         osDiskSize: '1023 GiB', resDiskSize: '10 GiB', maxDisks: 2, premiumDisk: false,
         uncachedIops: 1000, uncacheThroughput: '10 MiB/s'
     },
+
     'Standard_A2_v2': {
         vCpus: 2, memory: 4, type: 'General Purpose', score: 200,
         architecture: 'x64', hyperVGen: 'V1', acus: 100, gpus: 0,
