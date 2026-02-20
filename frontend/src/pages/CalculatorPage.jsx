@@ -96,7 +96,7 @@ export default function CalculatorPage() {
                         <Package size={16} />
                     </div>
                     Featured
-                    <span className="cat-count">{POPULAR_SERVICES.length}</span>
+                    <span className="cat-count">{POPULAR_SERVICES.filter(s => s.popular).length}</span>
                 </div>
 
                 {SERVICE_FAMILIES.filter(f => familyCounts[f.id]).map(family => {

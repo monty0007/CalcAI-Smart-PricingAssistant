@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -13,8 +12,8 @@ from urllib3.util.retry import Retry
 # Configuration
 API_URL = "https://prices.azure.com/api/retail/prices"
 BATCH_SIZE = 1000
-# Important currencies to fetch
-CURRENCIES = ['USD', 'INR', 'EUR', 'GBP', 'AUD', 'CAD', 'JPY', 'BRL', 'KRW', 'SGD', 'DKK', 'NZD', 'NOK', 'RUB', 'SEK', 'CHF', 'TWD']
+# UPDATED: Restricted to USD only for base canonical pricing
+CURRENCIES = ['USD']
 CHECKPOINT_FILE = "checkpoint.json"
 
 # Setup Request Session with Retries
@@ -141,7 +140,7 @@ def fetch_and_load(fresh=False):
         currency = CURRENCIES[i]
         
         # Determine starting URL
-        url = API_URL + f"?currencyCode={currency}"
+        url = API_URL + f"?currencyCode='{currency}'"
         total_fetched = 0
         
         if checkpoint and checkpoint['currency'] == currency:

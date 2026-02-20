@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -10,10 +9,14 @@ from datetime import datetime
 
 # Configuration
 API_URL = "https://prices.azure.com/api/retail/prices"
-API_FILTER = "" # Full load
+# Fetch only base USD prices for canonical database updates
+API_FILTER = "currencyCode eq 'USD'"
 BATCH_SIZE = 1000
 
-# DB Connection (Shared logic, copied for independence)
+# SKU to use for rate comparison 
+REFERENCE_SKU = "Standard_D2s_v5" 
+REFERENCE_REGION = "southcentralus" 
+
 def get_db_connection():
     try:
         if not os.environ.get('DATABASE_URL'):
@@ -37,15 +40,14 @@ def get_db_connection():
         print(f"Error connecting to database: {e}")
         sys.exit(1)
 
-def update_pricing():
+def update_prices():
     conn = get_db_connection()
+    
     start_time = datetime.now()
-    print(f"Starting Incremental Update at {start_time}")
-    print("Note: This script ONLY updates changed records. Unchanged records are skipped.")
+    print(f"[{start_time}] Starting Incremental Prices Update...")
+    print("Fetching base USD prices from Azure API.")
 
-    url = API_URL
-    if API_FILTER:
-        url += f"?$filter={API_FILTER}"
+    url = f"{API_URL}?$filter={API_FILTER}"
 
     stats = {
         "fetched": 0,
@@ -90,21 +92,11 @@ def update_pricing():
         if batch_items:
             process_batch(conn, batch_items, stats)
             
-        print("\n\nUpdate complete.")
-        print(f"Summary:")
+        print(f"\n\nBase Prices Update Summary:")
         print(f"  Total Fetched: {stats['fetched']}")
         print(f"  Total Changed (Inserted/Updated): {stats['total_affected']}")
         print(f"  Total Skipped (Unchanged): {stats['total_skipped']}")
         
-        # We generally DO NOT deactivate records in an update script unless we are sure the feed is complete.
-        # If this checks "all" data, we can optionally deactivate items not seen.
-        # User asked: "check is ther eany cahnges... if no changes we can skip"
-        # They didn't explicitly ask for deletion/deactivation in this flow, but "update that data" implies syncing.
-        # If we want to truly sync, we should deactivate missing.
-        # I'll include deactivation logic but verify timestamp.
-        
-        deactivate_missing(conn, start_time)
-
     except KeyboardInterrupt:
         print("\nStopped by user.")
     except Exception as e:
@@ -119,11 +111,12 @@ def process_batch(conn, items, stats):
     # Deduplicate by (meterId, effectiveStartDate)
     unique_map = {}
     for item in items:
+        # Force currency to USD just to be safe
+        item['currencyCode'] = 'USD'
         key = (item.get('meterId'), item.get('effectiveStartDate'))
         if key[0] and key[1]:
             unique_map[key] = item
     
-    # Sort by meterId, then effectiveStartDate
     deduped_items = sorted(list(unique_map.values()), key=lambda x: (x.get('meterId', ''), x.get('effectiveStartDate', '')))
     
     if not deduped_items:
@@ -174,7 +167,6 @@ def process_batch(conn, items, stats):
         azure_prices.is_active = FALSE
     """
     
-    
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -188,53 +180,23 @@ def process_batch(conn, items, stats):
             affected = cur.rowcount
             conn.commit()
             
-            # Calculate stats
-            # rowcount in ON CONFLICT return (inserts + updates) where condition matched
-            # batch_size - rowcount = skipped (condition failed, i.e., no change)
-            
             skipped = len(deduped_items) - affected
             stats["total_affected"] += affected
             stats["total_skipped"] += skipped
             stats["processed_batches"] += 1
-            break # Success
+            break
             
         except psycopg2.errors.DeadlockDetected:
             conn.rollback()
             if attempt < max_retries - 1:
-                print(f"\n⚠️ Deadlock detected. Retrying batch (Attempt {attempt + 2}/{max_retries})...")
-                time.sleep(1) # Short sleep
+                time.sleep(1)
             else:
-                print(f"\n❌ Batch Update Failed: Deadlock persisted after {max_retries} retries.")
+                print(f"\n❌ Batch Update Failed (Deadlock).")
         except Exception as e:
-            print(f"\n❌ Batch Update Failed: {e}")
             conn.rollback()
             break
     
     cur.close()
 
-def deactivate_missing(conn, start_time):
-    # Only deactivate if we are confident we scanned everything
-    # For now, let's just log potential obsolete count, or perform it if user implies "sync"
-    # User said "check is ther eany cahnges ... else update".
-    # I'll enable deactivation logic but keep it safe.
-    print(f"\nChecking for obsolete records (Last seen before {start_time})...")
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM azure_prices WHERE last_seen_at < %s AND is_active = TRUE", (start_time,))
-    count = cur.fetchone()[0]
-    
-    if count > 0:
-        print(f"Found {count} records that were not in this update feed.")
-        print("Marking them as inactive...")
-        cur.execute("""
-            UPDATE azure_prices 
-            SET is_active = FALSE 
-            WHERE last_seen_at < %s AND is_active = TRUE
-        """, (start_time,))
-        conn.commit()
-        print("Done.")
-    else:
-        print("No obsolete records found.")
-    cur.close()
-
 if __name__ == "__main__":
-    update_pricing()
+    update_prices()
