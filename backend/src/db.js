@@ -82,6 +82,7 @@ export async function initDB() {
     `);
 
     // 2. Indexes
+    // ─── Legacy simple indexes (kept for compatibility) ───────────────────
     await query(`
     CREATE INDEX IF NOT EXISTS idx_prices_service_region
     ON azure_prices(service_name, arm_region_name);
@@ -92,31 +93,27 @@ export async function initDB() {
     ON azure_prices(product_name, sku_name);
   `);
 
+    // ─── HIGH-IMPACT composite indexes ────────────────────────────────────
+    // Primary dashboard filter: region + service + active + currency + price sort
+    // Covers: WHERE arm_region_name = X AND service_name = Y AND currency_code = 'USD' AND is_active = TRUE
+    // ORDER BY retail_price ASC
     await query(`
-    CREATE INDEX IF NOT EXISTS idx_prices_active
-    ON azure_prices(is_active);
-  `);
-
-    // Add indexes for commonly queried fields to prevent full table scans
-    await query(`
-    CREATE INDEX IF NOT EXISTS idx_prices_currency_code
-    ON azure_prices(currency_code);
+    CREATE INDEX IF NOT EXISTS idx_prices_dashboard
+    ON azure_prices(arm_region_name, service_name, currency_code, is_active, retail_price);
     `);
 
+    // Partial index for VM list — only active USD rows (the hot path for vm-list endpoint)
+    // Filters out 2/3 of the table before any other condition runs
     await query(`
-    CREATE INDEX IF NOT EXISTS idx_prices_type
-    ON azure_prices(type);
+    CREATE INDEX IF NOT EXISTS idx_prices_active_usd
+    ON azure_prices(arm_region_name, service_name, sku_name, retail_price)
+    WHERE is_active = TRUE AND currency_code = 'USD';
     `);
 
-    await query(`
-    CREATE INDEX IF NOT EXISTS idx_prices_retail_price
-    ON azure_prices(retail_price);
-    `);
-
-    // Composite index for the getBestVmPrices query
+    // Composite covering index for getBestVmPrices GROUP BY query
     await query(`
     CREATE INDEX IF NOT EXISTS idx_prices_vm_query
-    ON azure_prices(service_name, type, currency_code, is_active);
+    ON azure_prices(service_name, type, currency_code, is_active, retail_price, product_name, sku_name, arm_region_name);
     `);
 
     // ── vm_types table (populated by scripts/update_vm_types.py) ──
@@ -251,7 +248,25 @@ export async function queryPrices({
     let where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     let sql = `
-        SELECT p.*
+        SELECT
+            p.id,
+            p.meter_id,
+            p.sku_id,
+            p.service_name,
+            p.service_id,
+            p.service_family,
+            p.product_name,
+            p.sku_name,
+            p.arm_region_name,
+            p.location,
+            p.currency_code,
+            p.retail_price,
+            p.unit_price,
+            p.effective_start_date,
+            p.type,
+            p.reservation_term,
+            p.is_active,
+            p.raw_data
         FROM azure_prices p
         ${where} 
         ORDER BY p.retail_price ASC
@@ -367,9 +382,9 @@ export async function getBestVmPrices(currencyCode = 'USD') {
       AND type = 'Consumption'
       AND retail_price > 0
       AND currency_code = 'USD'
-      AND product_name NOT ILIKE '%Windows%'
-      AND product_name NOT ILIKE '%Spot%'
-      AND product_name NOT ILIKE '%Low Priority%'
+      AND LOWER(product_name) NOT LIKE '%windows%'
+      AND LOWER(product_name) NOT LIKE '%spot%'
+      AND LOWER(product_name) NOT LIKE '%low priority%'
       AND is_active = TRUE
     GROUP BY sku_name, arm_region_name
     `;

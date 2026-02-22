@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Download } from 'lucide-react';
 import { fetchServicePricing, formatPrice, searchPrices } from '../services/azurePricingApi';
 import { useEstimate } from '../context/EstimateContext';
 import { POPULAR_SERVICES } from '../data/serviceCatalog';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 const AI_ENDPOINT = import.meta.env.VITE_AI_ENDPOINT;
 const AI_API_KEY = import.meta.env.VITE_AI_API_KEY;
@@ -51,7 +53,7 @@ async function callAI(messages, pricingContext) {
 
     const systemMsg = {
         role: 'system',
-        content: `You are an Azure Pricing Assistant. Help users understand Azure pricing. Be concise and helpful. ${pricingContext ? `\n\nRelevant pricing data:\n${pricingContext}` : ''}`
+        content: `You are an Azure Pricing Assistant. Help users understand Azure pricing. Provide detailed explanations and breakdown of the pricing. Reply with details about the services requested, explaining cost differences where applicable. ${pricingContext ? `\n\nRelevant pricing data:\n${pricingContext}` : ''}`
     };
 
     try {
@@ -189,6 +191,63 @@ export default function AiPage() {
         }
     }
 
+    async function handleExportExcel(pricingData) {
+        if (!pricingData || pricingData.length === 0) return;
+
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('AI Estimate');
+
+        ws.columns = [
+            { width: 35 }, // Service
+            { width: 45 }, // SKU/Name
+            { width: 20 }, // Region
+            { width: 22 }, // Price
+            { width: 15 }  // Unit
+        ];
+
+        // Title row
+        const titleRow = ws.addRow(["Azure AI Pricing Assistant Results"]);
+        titleRow.font = { size: 14, color: { argb: 'FF333333' } };
+        ws.mergeCells('A1:E1');
+
+        ws.addRow([]);
+
+        // Header
+        const headerRow = ws.addRow([
+            "Service / Product", "SKU Name", "Region", "Estimated Reference Price", "Unit"
+        ]);
+
+        headerRow.eachCell((cell) => {
+            cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFD9EAF7' }
+            };
+            cell.font = { size: 11, color: { argb: 'FF333333' }, bold: true };
+            cell.border = {
+                bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+            };
+        });
+
+        pricingData.forEach(item => {
+            const dataRow = ws.addRow([
+                item.product,
+                item.name,
+                item.region,
+                formatPrice(item.price, currency),
+                `per ${item.unit}`
+            ]);
+            dataRow.eachCell(cell => {
+                cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+                cell.border = { bottom: { style: 'thin', color: { argb: 'FFEEEEEE' } } };
+            });
+        });
+
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        saveAs(blob, `Azure_AI_Pricing_${new Date().toISOString().split('T')[0]}.xlsx`);
+    }
+
     function handleAddToEstimate(item) {
         addItem({
             serviceName: item.original.serviceName,
@@ -234,25 +293,37 @@ export default function AiPage() {
                                         .replace(/\n/g, '<br/>')
                                 }} />
                                 {msg.type === 'pricing' && msg.pricingData && (
-                                    <div className="pricing-results">
-                                        {msg.pricingData.map((item, j) => (
-                                            <div
-                                                key={j}
-                                                className="pricing-result-card"
-                                                onClick={() => handleAddToEstimate(item)}
-                                                title="Click to add to estimate"
+                                    <>
+                                        <div className="pricing-results">
+                                            {msg.pricingData.map((item, j) => (
+                                                <div
+                                                    key={j}
+                                                    className="pricing-result-card"
+                                                    onClick={() => handleAddToEstimate(item)}
+                                                    title="Click to add to estimate"
+                                                >
+                                                    <div>
+                                                        <div className="name">{item.name}</div>
+                                                        <div className="meta">{item.product} • {item.region}</div>
+                                                    </div>
+                                                    <div style={{ textAlign: 'right' }}>
+                                                        <div className="price">{formatPrice(item.price, currency)}</div>
+                                                        <div className="meta">/{item.unit}</div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div style={{ marginTop: '12px', textAlign: 'right' }}>
+                                            <button
+                                                className="btn btn-secondary chat-export-btn"
+                                                onClick={() => handleExportExcel(msg.pricingData)}
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '6px 12px', background: 'var(--surface)', border: '1px solid var(--border-primary)', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-primary)' }}
                                             >
-                                                <div>
-                                                    <div className="name">{item.name}</div>
-                                                    <div className="meta">{item.product} • {item.region}</div>
-                                                </div>
-                                                <div style={{ textAlign: 'right' }}>
-                                                    <div className="price">{formatPrice(item.price, currency)}</div>
-                                                    <div className="meta">/{item.unit}</div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
+                                                <Download size={14} />
+                                                Convert to Excel
+                                            </button>
+                                        </div>
+                                    </>
                                 )}
                             </div>
                         </div>
