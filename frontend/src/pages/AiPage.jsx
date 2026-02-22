@@ -1,23 +1,36 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Download } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Download, Plus, RefreshCw, FileSpreadsheet, ChevronRight } from 'lucide-react';
 import { fetchServicePricing, formatPrice, searchPrices } from '../services/azurePricingApi';
 import { useEstimate } from '../context/EstimateContext';
 import { POPULAR_SERVICES } from '../data/serviceCatalog';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
+// ── Env config ───────────────────────────────────────────────────────
 const AI_ENDPOINT = import.meta.env.VITE_AI_ENDPOINT;
 const AI_API_KEY = import.meta.env.VITE_AI_API_KEY;
 const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'gpt-4o-mini';
 
+// ── Suggested prompts ────────────────────────────────────────────────
 const SUGGESTED_PROMPTS = [
-    "What's the cheapest VM in East US?",
-    "Compare storage pricing options",
-    "How much does Azure SQL cost?",
-    "Show me Azure Kubernetes pricing",
-    "Cheapest database options?",
-    "Azure Functions pricing",
+    { icon: '💻', text: "Cheapest VM in Central India" },
+    { icon: '🗄️', text: "Azure SQL Database pricing" },
+    { icon: '☸️', text: "Kubernetes (AKS) pricing" },
+    { icon: '🪣', text: "Blob Storage cost comparison" },
+    { icon: '⚡', text: "Azure Functions cost" },
+    { icon: '🔍', text: "Cheapest database options" },
 ];
+
+// ── Region keyword map ───────────────────────────────────────────────
+const REGION_MAP = {
+    'west us': 'westus', westus: 'westus',
+    'west europe': 'westeurope', europe: 'westeurope',
+    'east asia': 'eastasia', asia: 'eastasia',
+    india: 'centralindia', 'central india': 'centralindia',
+    'south india': 'southindia', uk: 'uksouth', 'uk south': 'uksouth',
+    japan: 'japaneast', australia: 'australiaeast', canada: 'canadacentral',
+    'east us': 'eastus', eastus: 'eastus',
+};
 
 function parseQuery(query) {
     const lower = query.toLowerCase();
@@ -28,32 +41,33 @@ function parseQuery(query) {
     );
 
     let region = 'eastus';
-    const regionMap = {
-        'west us': 'westus', 'westus': 'westus',
-        'west europe': 'westeurope', 'europe': 'westeurope',
-        'east asia': 'eastasia', 'asia': 'eastasia',
-        'india': 'centralindia', 'central india': 'centralindia',
-        'south india': 'southindia', 'uk': 'uksouth', 'uk south': 'uksouth',
-        'japan': 'japaneast', 'australia': 'australiaeast', 'canada': 'canadacentral',
-    };
-    for (const [key, val] of Object.entries(regionMap)) {
+    for (const [key, val] of Object.entries(REGION_MAP)) {
         if (lower.includes(key)) { region = val; break; }
     }
 
     let intent = 'general';
-    if (lower.includes('cheap') || lower.includes('lowest')) intent = 'cheapest';
+    if (lower.includes('cheap') || lower.includes('lowest') || lower.includes('cheapest')) intent = 'cheapest';
     if (lower.includes('compar')) intent = 'compare';
     if (lower.includes('how much') || lower.includes('cost') || lower.includes('pric')) intent = 'pricing';
 
     return { matchedService, region, intent, query };
 }
 
+// ── AI call ──────────────────────────────────────────────────────────
 async function callAI(messages, pricingContext) {
     if (!AI_ENDPOINT || !AI_API_KEY) return null;
 
     const systemMsg = {
         role: 'system',
-        content: `You are an Azure Pricing Assistant. Help users understand Azure pricing. Provide detailed explanations and breakdown of the pricing. Reply with details about the services requested, explaining cost differences where applicable. ${pricingContext ? `\n\nRelevant pricing data:\n${pricingContext}` : ''}`
+        content: `You are an Azure Pricing Expert. Help users understand Azure service pricing clearly and in detail.
+When pricing data is provided, give a structured breakdown with:
+- What the service/SKU is and when to use it
+- The cost implications and what drives the price
+- Comparison between options if multiple are shown
+- Practical recommendations based on cost/performance
+
+Keep responses concise but informative. Use markdown formatting, bullet points, and bold for prices.
+${pricingContext ? `\n\nReal-time pricing data from the Azure API:\n${pricingContext}` : ''}`
     };
 
     try {
@@ -65,12 +79,11 @@ async function callAI(messages, pricingContext) {
             },
             body: JSON.stringify({
                 model: AI_MODEL,
-                messages: [systemMsg, ...messages.slice(-6)],
-                max_tokens: 500,
+                messages: [systemMsg, ...messages.slice(-8)],
+                max_tokens: 800,
                 temperature: 0.7,
             }),
         });
-
         if (!res.ok) return null;
         const data = await res.json();
         return data.choices?.[0]?.message?.content || null;
@@ -79,30 +92,125 @@ async function callAI(messages, pricingContext) {
     }
 }
 
+// ── Simple markdown renderer ─────────────────────────────────────────
+function renderMarkdown(text) {
+    if (!text) return '';
+    return text
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        .replace(/^#{1,3}\s(.+)$/gm, '<strong class="md-heading">$1</strong>')
+        .replace(/^[-•]\s(.+)$/gm, '<div class="md-bullet">• $1</div>')
+        .replace(/\n\n/g, '<br/><br/>')
+        .replace(/\n/g, '<br/>');
+}
+
+// ── Excel export ─────────────────────────────────────────────────────
+async function exportToExcel(pricingData, currency) {
+    if (!pricingData || pricingData.length === 0) return;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('AI Pricing Results');
+    ws.columns = [
+        { header: 'Service / SKU', key: 'name', width: 35 },
+        { header: 'Product', key: 'product', width: 40 },
+        { header: 'Region', key: 'region', width: 20 },
+        { header: `Price (${currency})`, key: 'price', width: 16 },
+        { header: 'Unit', key: 'unit', width: 18 },
+    ];
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0078D4' } };
+
+    pricingData.forEach(p => {
+        ws.addRow({ name: p.name, product: p.product, region: p.region, price: p.price, unit: p.unit });
+    });
+    ws.eachRow({ includeEmpty: false }, (row, i) => {
+        if (i > 1) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: i % 2 === 0 ? 'FFF0F4FF' : 'FFFFFFFF' } };
+    });
+
+    const buffer = await wb.xlsx.writeBuffer();
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+        `Azure_Pricing_${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+
+// ── Typing indicator ─────────────────────────────────────────────────
+function TypingIndicator() {
+    return (
+        <div className="ai-msg ai-msg--bot">
+            <div className="ai-avatar ai-avatar--bot"><Bot size={16} /></div>
+            <div className="ai-bubble ai-bubble--bot">
+                <div className="ai-typing">
+                    <span /><span /><span />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ── Pricing card ─────────────────────────────────────────────────────
+function PricingCard({ item, currency, onAddToEstimate }) {
+    return (
+        <div className="ai-price-card">
+            <div className="ai-price-card__header">
+                <div className="ai-price-card__name">{item.name}</div>
+                <div className="ai-price-card__price">
+                    {formatPrice(item.price, currency)}
+                    <span className="ai-price-card__unit">/{item.unit}</span>
+                </div>
+            </div>
+            <div className="ai-price-card__sub">{item.product}</div>
+            <div className="ai-price-card__footer">
+                <span className="ai-price-card__region">📍 {item.region}</span>
+                <button className="ai-add-btn" onClick={() => onAddToEstimate(item)}>
+                    <Plus size={12} /> Add to Estimate
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────
 export default function AiPage() {
-    const [messages, setMessages] = useState([
-        {
-            role: 'bot',
-            content: "Hi! I'm your Azure Pricing Assistant. Ask me about Azure service pricing, compare costs, or find the cheapest options. I fetch real-time data from Microsoft's pricing API!",
-            type: 'text',
-        },
-    ]);
-    const [input, setInput] = useState('');
-    const [loading, setLoading] = useState(false);
-    const messagesEndRef = useRef(null);
     const { currency, addItem } = useEstimate();
     const hasAI = Boolean(AI_ENDPOINT && AI_API_KEY);
 
+    const [messages, setMessages] = useState([{
+        id: 0,
+        role: 'bot',
+        content: `Hi! I'm your **Azure Pricing Assistant**.\n\nAsk me anything about Azure service costs — I'll fetch real pricing data and explain it clearly. ${hasAI ? 'AI analysis is enabled.' : 'Connect an AI key in `.env` for enhanced explanations.'}`,
+        type: 'text',
+    }]);
+    const [input, setInput] = useState('');
+    const [loading, setLoading] = useState(false);
+    const msgIdRef = useRef(1);
+    const messagesEndRef = useRef(null);
+    const inputRef = useRef(null);
+
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+    }, [messages, loading]);
+
+    function handleAddToEstimate(item) {
+        addItem({
+            serviceName: item.original?.serviceName || item.product,
+            productName: item.original?.productName || item.product,
+            skuName: item.original?.skuName || item.name,
+            meterName: item.original?.meterName || item.name,
+            retailPrice: item.original?.retailPrice || item.price,
+            unitOfMeasure: item.original?.unitOfMeasure || item.unit,
+            armRegionName: item.original?.armRegionName || item.region,
+            location: item.original?.location || item.region,
+            currencyCode: item.original?.currencyCode || currency,
+        });
+    }
 
     async function handleSend(text) {
-        const query = text || input.trim();
+        const query = (text || input).trim();
         if (!query || loading) return;
-
         setInput('');
-        setMessages(prev => [...prev, { role: 'user', content: query, type: 'text' }]);
+
+        const userMsgId = msgIdRef.current++;
+        setMessages(prev => [...prev, { id: userMsgId, role: 'user', content: query, type: 'text' }]);
         setLoading(true);
 
         try {
@@ -110,45 +218,46 @@ export default function AiPage() {
             let pricingData = null;
             let pricingContext = '';
 
-            // Fetch pricing data
             if (parsed.matchedService) {
                 const data = await fetchServicePricing(parsed.matchedService.serviceName, parsed.region, currency);
                 if (data.items.length > 0) {
                     const sorted = [...data.items].sort((a, b) => a.retailPrice - b.retailPrice);
-                    pricingData = sorted.slice(0, 5).map(item => ({
-                        name: item.skuName || item.meterName,
-                        product: item.productName,
+                    pricingData = sorted.slice(0, 10).map(item => ({
+                        name: item.skuName || item.meterName || 'Service SKU',
+                        product: item.productName || parsed.matchedService.serviceName,
                         price: item.retailPrice,
-                        unit: item.unitOfMeasure,
-                        region: item.location,
-                        currency: item.currencyCode,
+                        unit: item.unitOfMeasure || 'hour',
+                        region: item.location || parsed.region,
+                        currency: item.currencyCode || currency,
                         original: item,
                     }));
-                    pricingContext = pricingData.map(p => `${p.name}: ${formatPrice(p.price, currency)}/${p.unit}`).join('\n');
+                    pricingContext = pricingData.slice(0, 5).map(p =>
+                        `${p.name}: ${formatPrice(p.price, currency)}/${p.unit} (${p.region})`
+                    ).join('\n');
                 }
             } else {
-                const keywords = query.split(' ').filter(w => w.length > 3);
-                if (keywords.length > 0) {
-                    try {
-                        const data = await searchPrices(keywords.join(' '), parsed.region, currency);
-                        if (data.items.length > 0) {
-                            const sorted = [...data.items].sort((a, b) => a.retailPrice - b.retailPrice);
-                            pricingData = sorted.slice(0, 5).map(item => ({
-                                name: item.skuName || item.meterName,
-                                product: item.productName,
-                                price: item.retailPrice,
-                                unit: item.unitOfMeasure,
-                                region: item.location,
-                                currency: item.currencyCode,
-                                original: item,
-                            }));
-                            pricingContext = pricingData.map(p => `${p.name}: ${formatPrice(p.price, currency)}/${p.unit}`).join('\n');
-                        }
-                    } catch { /* fallback to text response */ }
+                const keywords = query.split(' ').filter(w => w.length > 3).join(' ');
+                if (keywords) {
+                    const data = await searchPrices(keywords, parsed.region, currency).catch(() => ({ items: [] }));
+                    if (data.items.length > 0) {
+                        const sorted = [...data.items].sort((a, b) => a.retailPrice - b.retailPrice);
+                        pricingData = sorted.slice(0, 10).map(item => ({
+                            name: item.skuName || item.meterName || 'Service SKU',
+                            product: item.productName || 'Azure Service',
+                            price: item.retailPrice,
+                            unit: item.unitOfMeasure || 'hour',
+                            region: item.location || parsed.region,
+                            currency: item.currencyCode || currency,
+                            original: item,
+                        }));
+                        pricingContext = pricingData.slice(0, 5).map(p =>
+                            `${p.name}: ${formatPrice(p.price, currency)}/${p.unit} (${p.region})`
+                        ).join('\n');
+                    }
                 }
             }
 
-            // Try AI response if configured
+            // Build AI or template response
             let aiText = null;
             if (hasAI) {
                 const aiMessages = messages
@@ -158,217 +267,165 @@ export default function AiPage() {
                 aiText = await callAI(aiMessages, pricingContext);
             }
 
-            // Build response
             let responseText = '';
             if (aiText) {
                 responseText = aiText;
-            } else if (pricingData) {
-                const serviceName = parsed.matchedService?.serviceName || 'matching services';
+            } else if (pricingData?.length > 0) {
+                const svc = parsed.matchedService?.serviceName || 'matching services';
+                const regionLabel = parsed.region.replace(/([A-Z])/g, ' $1').trim();
                 if (parsed.intent === 'cheapest') {
-                    responseText = `Here are the **cheapest ${serviceName}** options in **${parsed.region}**:`;
+                    responseText = `Here are the **cheapest ${svc}** options in **${regionLabel}**, sorted by price:`;
                 } else {
-                    responseText = `Found pricing for **${serviceName}** in **${parsed.region}**. Here are the top options:`;
+                    responseText = `Found **${pricingData.length} pricing options** for **${svc}** in **${regionLabel}**. Here are the top results:`;
                 }
+                responseText += `\n\nYou can add any option to your estimate or **export all results to Excel**.`;
             } else {
-                responseText = `I can help with Azure pricing! Try asking about specific services:\n\n• "Virtual Machines pricing"\n• "How much does Azure SQL cost?"\n• "Cheapest storage option"\n• "Compare Kubernetes pricing"`;
+                responseText = `I couldn't find specific pricing for that query. Try asking about:\n\n• **Virtual Machines** — e.g. "cheapest VM in India"\n• **Storage** — e.g. "blob storage pricing"\n• **Databases** — e.g. "Azure SQL cost"\n• **Containers** — e.g. "AKS pricing"\n\nOr be more specific about the service you need!`;
             }
 
             setMessages(prev => [...prev, {
+                id: msgIdRef.current++,
                 role: 'bot',
                 content: responseText,
                 type: pricingData ? 'pricing' : 'text',
                 pricingData,
-                totalOptions: pricingData?.length || 0,
+                region: parsed.region,
             }]);
-        } catch (error) {
+        } catch (err) {
             setMessages(prev => [...prev, {
+                id: msgIdRef.current++,
                 role: 'bot',
-                content: `Sorry, I encountered an error: ${error.message}. Please try again.`,
+                content: `Something went wrong: ${err.message}. Please try again.`,
                 type: 'text',
             }]);
         } finally {
             setLoading(false);
+            inputRef.current?.focus();
         }
     }
 
-    async function handleExportExcel(pricingData) {
-        if (!pricingData || pricingData.length === 0) return;
+    const handleKeyDown = e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    };
 
-        const wb = new ExcelJS.Workbook();
-        const ws = wb.addWorksheet('AI Estimate');
-
-        ws.columns = [
-            { width: 35 }, // Service
-            { width: 45 }, // SKU/Name
-            { width: 20 }, // Region
-            { width: 22 }, // Price
-            { width: 15 }  // Unit
-        ];
-
-        // Title row
-        const titleRow = ws.addRow(["Azure AI Pricing Assistant Results"]);
-        titleRow.font = { size: 14, color: { argb: 'FF333333' } };
-        ws.mergeCells('A1:E1');
-
-        ws.addRow([]);
-
-        // Header
-        const headerRow = ws.addRow([
-            "Service / Product", "SKU Name", "Region", "Estimated Reference Price", "Unit"
-        ]);
-
-        headerRow.eachCell((cell) => {
-            cell.fill = {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FFD9EAF7' }
-            };
-            cell.font = { size: 11, color: { argb: 'FF333333' }, bold: true };
-            cell.border = {
-                bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } }
-            };
-        });
-
-        pricingData.forEach(item => {
-            const dataRow = ws.addRow([
-                item.product,
-                item.name,
-                item.region,
-                formatPrice(item.price, currency),
-                `per ${item.unit}`
-            ]);
-            dataRow.eachCell(cell => {
-                cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
-                cell.border = { bottom: { style: 'thin', color: { argb: 'FFEEEEEE' } } };
-            });
-        });
-
-        const buffer = await wb.xlsx.writeBuffer();
-        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        saveAs(blob, `Azure_AI_Pricing_${new Date().toISOString().split('T')[0]}.xlsx`);
-    }
-
-    function handleAddToEstimate(item) {
-        addItem({
-            serviceName: item.original.serviceName,
-            productName: item.original.productName,
-            skuName: item.original.skuName,
-            meterName: item.original.meterName,
-            retailPrice: item.original.retailPrice,
-            unitOfMeasure: item.original.unitOfMeasure,
-            armRegionName: item.original.armRegionName,
-            location: item.original.location,
-            currencyCode: item.original.currencyCode,
-        });
-    }
+    const showSuggestions = messages.length <= 1 && !loading;
 
     return (
         <div className="ai-page">
+            {/* ── Header ──────────────────────────────────────── */}
             <div className="ai-header">
-                <h1>
-                    <Sparkles size={22} />
-                    AI Pricing Assistant
-                </h1>
-                <p>Ask anything about Azure pricing — real-time data from Microsoft</p>
+                <div className="ai-header__icon">
+                    <Sparkles size={20} />
+                </div>
+                <div>
+                    <h1 className="ai-header__title">Azure Pricing Assistant</h1>
+                    <p className="ai-header__sub">Ask about any Azure service — get real pricing data instantly</p>
+                </div>
+                <div className="ai-header__status">
+                    <span className={`ai-status-dot ${hasAI ? 'active' : ''}`} />
+                    <span>{hasAI ? 'AI Enhanced' : 'Data Mode'}</span>
+                </div>
             </div>
 
-            {!hasAI && (
-                <div className="ai-no-endpoint">
-                    <strong>Built-in mode</strong> — Using keyword matching for pricing queries.
-                    Set <code>VITE_AI_ENDPOINT</code> and <code>VITE_AI_API_KEY</code> in <code>.env</code> for AI-powered responses.
-                </div>
-            )}
-
-            <div className="chat-container">
-                <div className="chat-messages">
-                    {messages.map((msg, i) => (
-                        <div key={i} className={`chat-message ${msg.role}`}>
-                            <div className="chat-avatar">
-                                {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
-                            </div>
-                            <div className="chat-bubble">
-                                <div dangerouslySetInnerHTML={{
-                                    __html: msg.content
-                                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                                        .replace(/\n/g, '<br/>')
-                                }} />
-                                {msg.type === 'pricing' && msg.pricingData && (
-                                    <>
-                                        <div className="pricing-results">
-                                            {msg.pricingData.map((item, j) => (
-                                                <div
-                                                    key={j}
-                                                    className="pricing-result-card"
-                                                    onClick={() => handleAddToEstimate(item)}
-                                                    title="Click to add to estimate"
-                                                >
-                                                    <div>
-                                                        <div className="name">{item.name}</div>
-                                                        <div className="meta">{item.product} • {item.region}</div>
-                                                    </div>
-                                                    <div style={{ textAlign: 'right' }}>
-                                                        <div className="price">{formatPrice(item.price, currency)}</div>
-                                                        <div className="meta">/{item.unit}</div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div style={{ marginTop: '12px', textAlign: 'right' }}>
-                                            <button
-                                                className="btn btn-secondary chat-export-btn"
-                                                onClick={() => handleExportExcel(msg.pricingData)}
-                                                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '6px 12px', background: 'var(--surface)', border: '1px solid var(--border-primary)', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-primary)' }}
-                                            >
-                                                <Download size={14} />
-                                                Convert to Excel
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
+            {/* ── Chat area ───────────────────────────────────── */}
+            <div className="ai-chat-area">
+                {/* Suggested prompts */}
+                {showSuggestions && (
+                    <div className="ai-suggestions">
+                        <p className="ai-suggestions__label">Try asking:</p>
+                        <div className="ai-suggestions__grid">
+                            {SUGGESTED_PROMPTS.map((p, i) => (
+                                <button
+                                    key={i}
+                                    className="ai-suggestion-pill"
+                                    onClick={() => handleSend(p.text)}
+                                >
+                                    <span>{p.icon}</span> {p.text}
+                                </button>
+                            ))}
                         </div>
-                    ))}
-                    {loading && (
-                        <div className="chat-message bot">
-                            <div className="chat-avatar"><Bot size={14} /></div>
-                            <div className="chat-bubble">
-                                <div className="loading-spinner" style={{ padding: '6px', flexDirection: 'row', gap: '8px' }}>
-                                    <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }}></div>
-                                    Fetching pricing...
+                    </div>
+                )}
+
+                {/* Messages */}
+                {messages.map(msg => (
+                    <div
+                        key={msg.id}
+                        className={`ai-msg ai-msg--${msg.role}`}
+                    >
+                        <div className={`ai-avatar ai-avatar--${msg.role}`}>
+                            {msg.role === 'bot' ? <Bot size={15} /> : <User size={15} />}
+                        </div>
+                        <div className={`ai-bubble ai-bubble--${msg.role}`}>
+                            {/* Text content */}
+                            <div
+                                className="ai-bubble__text"
+                                dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                            />
+
+                            {/* Pricing cards */}
+                            {msg.pricingData && msg.pricingData.length > 0 && (
+                                <div className="ai-pricing-section">
+                                    <div className="ai-pricing-grid">
+                                        {msg.pricingData.map((item, i) => (
+                                            <PricingCard
+                                                key={i}
+                                                item={item}
+                                                currency={currency}
+                                                onAddToEstimate={handleAddToEstimate}
+                                            />
+                                        ))}
+                                    </div>
+                                    <div className="ai-pricing-actions">
+                                        <button
+                                            className="ai-excel-btn"
+                                            onClick={() => exportToExcel(msg.pricingData, currency)}
+                                        >
+                                            <FileSpreadsheet size={14} /> Convert to Excel
+                                        </button>
+                                        <button
+                                            className="ai-followup-btn"
+                                            onClick={() => {
+                                                setInput(`Tell me more about the cheapest option from the previous results`);
+                                                inputRef.current?.focus();
+                                            }}
+                                        >
+                                            <ChevronRight size={13} /> Ask more details
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                </div>
+                    </div>
+                ))}
 
-                <div className="suggested-prompts">
-                    {SUGGESTED_PROMPTS.map((prompt, i) => (
-                        <button key={i} className="suggested-prompt" onClick={() => handleSend(prompt)}>
-                            {prompt}
-                        </button>
-                    ))}
-                </div>
+                {loading && <TypingIndicator />}
+                <div ref={messagesEndRef} />
+            </div>
 
-                <div className="chat-input-area">
-                    <input
-                        type="text"
-                        className="chat-input"
-                        placeholder="Ask about Azure pricing..."
+            {/* ── Input box ───────────────────────────────────── */}
+            <div className="ai-input-area">
+                <div className="ai-input-wrap">
+                    <textarea
+                        ref={inputRef}
+                        className="ai-input"
+                        rows={1}
+                        placeholder="Ask about Azure pricing… (e.g. cheapest VM in India)"
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                        disabled={loading}
+                        onChange={e => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
                     />
                     <button
-                        className="chat-send-btn"
+                        className={`ai-send-btn ${loading || !input.trim() ? 'disabled' : ''}`}
                         onClick={() => handleSend()}
-                        disabled={!input.trim() || loading}
+                        disabled={loading || !input.trim()}
                     >
-                        <Send size={14} />
-                        Send
+                        {loading ? <RefreshCw size={16} className="spin" /> : <Send size={16} />}
                     </button>
                 </div>
+                <p className="ai-input-hint">
+                    Prices are fetched live from Microsoft Azure · Press <kbd>Enter</kbd> to send
+                </p>
             </div>
         </div>
     );

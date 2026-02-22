@@ -142,6 +142,61 @@ router.post('/google', async (req, res) => {
 });
 
 /**
+ * POST /api/auth/microsoft
+ * Validates a Microsoft access token via Graph API, upserts user, returns JWT
+ */
+router.post('/microsoft', async (req, res) => {
+    try {
+        const { accessToken } = req.body;
+        if (!accessToken) return res.status(400).json({ error: 'accessToken required' });
+
+        // Validate token by calling Microsoft Graph API
+        const graphRes = await fetch('https://graph.microsoft.com/v1.0/me', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!graphRes.ok) {
+            return res.status(401).json({ error: 'Invalid Microsoft access token' });
+        }
+        const profile = await graphRes.json();
+        const email = profile.mail || profile.userPrincipalName;
+        const name = profile.displayName || email;
+        const microsoftId = profile.id;
+
+        if (!email) return res.status(400).json({ error: 'Could not determine email from Microsoft profile' });
+
+        // Find or create user
+        let result = await query('SELECT * FROM users WHERE email = $1', [email]);
+        let user = result.rows[0];
+
+        if (!user) {
+            result = await query(
+                `INSERT INTO users (email, microsoft_id, name) VALUES ($1, $2, $3)
+                 RETURNING id, email, name, preferred_region, preferred_currency`,
+                [email, microsoftId, name]
+            );
+            user = result.rows[0];
+        } else if (!user.microsoft_id) {
+            await query('UPDATE users SET microsoft_id = $1 WHERE id = $2', [microsoftId, user.id]);
+        }
+
+        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+        res.json({
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                preferred_region: user.preferred_region,
+                preferred_currency: user.preferred_currency
+            }
+        });
+    } catch (err) {
+        console.error('Microsoft auth error:', err);
+        res.status(401).json({ error: 'Microsoft authentication failed' });
+    }
+});
+
+/**
  * PUT /api/auth/preferences
  */
 router.put('/preferences', authenticateToken, async (req, res) => {

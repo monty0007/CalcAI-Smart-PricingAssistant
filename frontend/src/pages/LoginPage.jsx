@@ -2,357 +2,261 @@ import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { GoogleLogin } from '@react-oauth/google';
 import { useNavigate, Link } from 'react-router-dom';
+import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, ArrowLeft } from 'lucide-react';
+
+// Microsoft icon SVG
+function MicrosoftIcon() {
+    return (
+        <svg width="18" height="18" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+            <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+            <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+        </svg>
+    );
+}
+
+const FEATURES = [
+    'Real-time Azure retail prices',
+    'Intelligent VM cost comparisons',
+    'Save and manage your BOQ estimates',
+    'Export to Excel instantly',
+];
 
 export default function LoginPage() {
-    const { login, signup, googleLogin } = useAuth(); // Removed loading
+    const { login, signup, googleLogin, microsoftLogin } = useAuth();
     const navigate = useNavigate();
-    const [isSignup, setIsSignup] = useState(false);
+
+    const [mode, setMode] = useState('login'); // 'login' | 'signup'
+    const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [name, setName] = useState('');
+    const [showPw, setShowPw] = useState(false);
     const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [msLoading, setMsLoading] = useState(false);
 
-    const handleSubmit = async (e) => {
+    async function handleSubmit(e) {
         e.preventDefault();
         setError(null);
+        setLoading(true);
         try {
-            if (isSignup) {
+            if (mode === 'signup') {
                 await signup(email, password, name);
             } else {
                 await login(email, password);
             }
-            navigate('/dashboard'); // Or previous page
+            navigate('/dashboard');
         } catch (err) {
             setError(err.message);
+        } finally {
+            setLoading(false);
         }
-    };
+    }
+
+    async function handleGoogleSuccess(credentialResponse) {
+        setError(null);
+        try {
+            await googleLogin(credentialResponse);
+            navigate('/dashboard');
+        } catch {
+            setError('Google login failed. Please try again.');
+        }
+    }
+
+    async function handleMicrosoft() {
+        setError(null);
+        setMsLoading(true);
+        try {
+            await microsoftLogin();
+            navigate('/dashboard');
+        } catch (err) {
+            setError(err.message || 'Microsoft login failed. Please try again.');
+        } finally {
+            setMsLoading(false);
+        }
+    }
 
     return (
-        <div className="auth-container">
-            {/* Left Side: Branding & Visuals */}
-            <div className="auth-visuals">
-                <div className="visuals-content">
-                    <div className="logo-badge">
-                        <div className="logo-icon-lg">Ca</div>
-                        <span>CalcAI</span>
-                    </div>
-                    <h1>Estimate Azure costs<br />smarter, faster.</h1>
-                    <p>
-                        Get real-time pricing, compare virtual machines,
-                        and manage your cloud budget with confidence.
+        <div className="auth-page">
+            {/* ── Left branding panel ──────────────────────────── */}
+            <div className="auth-brand">
+                <Link to="/" className="auth-brand-logo">
+                    <div className="auth-logo-icon">Ca</div>
+                    <span>CalcAI</span>
+                </Link>
+                <div className="auth-brand-body">
+                    <h1 className="auth-brand-title">
+                        Estimate Azure costs<br />
+                        <span className="auth-brand-gradient">smarter &amp; faster.</span>
+                    </h1>
+                    <p className="auth-brand-desc">
+                        Real-time pricing, intelligent VM comparisons, and BOQ management — all in one place.
                     </p>
-                    <div className="visual-features">
-                        <div className="visual-feature-item">✓ Real-time Azure Retail Prices</div>
-                        <div className="visual-feature-item">✓ Intelligent VM Comparisons</div>
-                        <div className="visual-feature-item">✓ Save & Export Estimates</div>
-                    </div>
+                    <ul className="auth-features">
+                        {FEATURES.map((f, i) => (
+                            <li key={i}><CheckCircle size={16} />{f}</li>
+                        ))}
+                    </ul>
+                </div>
+                <div className="auth-brand-footer">
+                    &copy; {new Date().getFullYear()} CalcAI · Azure Pricing Intelligence
                 </div>
             </div>
 
-            {/* Right Side: Login Form */}
-            <div className="auth-form-side">
-                <div className="auth-card-minimal">
-                    <div className="auth-header">
-                        <h2>{isSignup ? 'Create Account' : 'Welcome Back'}</h2>
-                        <p className="auth-subtitle">
-                            {isSignup ? 'Enter your details to get started' : 'Sign in to access your estimates'}
-                        </p>
+            {/* ── Right form panel ─────────────────────────────── */}
+            <div className="auth-form-panel">
+                <button className="auth-back-btn" onClick={() => navigate(-1)}>
+                    <ArrowLeft size={15} /> Back
+                </button>
+                <div className="auth-form-card">
+                    {/* Tab switch */}
+                    <div className="auth-tabs">
+                        <button
+                            className={`auth-tab ${mode === 'login' ? 'active' : ''}`}
+                            onClick={() => { setMode('login'); setError(null); }}
+                        >
+                            Sign In
+                        </button>
+                        <button
+                            className={`auth-tab ${mode === 'signup' ? 'active' : ''}`}
+                            onClick={() => { setMode('signup'); setError(null); }}
+                        >
+                            Sign Up
+                        </button>
                     </div>
 
-                    {error && <div className="auth-error">{error}</div>}
+                    <h2 className="auth-form-title">
+                        {mode === 'login' ? 'Welcome back' : 'Create your account'}
+                    </h2>
+                    <p className="auth-form-sub">
+                        {mode === 'login'
+                            ? 'Sign in to access your saved estimates'
+                            : 'Start managing Azure costs today'}
+                    </p>
 
+                    {/* Error banner */}
+                    {error && <div className="auth-error-banner"><span>⚠</span> {error}</div>}
+
+                    {/* Email/password form */}
                     <form onSubmit={handleSubmit} className="auth-form">
-                        {isSignup && (
-                            <div className="form-group">
-                                <label>Name</label>
-                                <input
-                                    type="text"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    required
-                                    placeholder="John Doe"
-                                />
+                        {mode === 'signup' && (
+                            <div className="auth-field">
+                                <label>Full Name</label>
+                                <div className="auth-input-wrap">
+                                    <User size={15} className="auth-field-icon" />
+                                    <input
+                                        type="text"
+                                        placeholder="John Doe"
+                                        value={name}
+                                        onChange={e => setName(e.target.value)}
+                                        required
+                                        autoComplete="name"
+                                    />
+                                </div>
                             </div>
                         )}
-                        <div className="form-group">
+                        <div className="auth-field">
                             <label>Email</label>
-                            <input
-                                type="email"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                required
-                                placeholder="name@company.com"
-                            />
+                            <div className="auth-input-wrap">
+                                <Mail size={15} className="auth-field-icon" />
+                                <input
+                                    type="email"
+                                    placeholder="name@company.com"
+                                    value={email}
+                                    onChange={e => setEmail(e.target.value)}
+                                    required
+                                    autoComplete={mode === 'login' ? 'email' : 'username'}
+                                />
+                            </div>
                         </div>
-                        <div className="form-group">
-                            <label>Password</label>
-                            <input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                required
-                                placeholder="••••••••"
-                            />
+                        <div className="auth-field">
+                            <div className="auth-field-label-row">
+                                <label>Password</label>
+                                {mode === 'login' && (
+                                    <button type="button" className="auth-forgot">Forgot password?</button>
+                                )}
+                            </div>
+                            <div className="auth-input-wrap">
+                                <Lock size={15} className="auth-field-icon" />
+                                <input
+                                    type={showPw ? 'text' : 'password'}
+                                    placeholder="••••••••"
+                                    value={password}
+                                    onChange={e => setPassword(e.target.value)}
+                                    required
+                                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                                />
+                                <button
+                                    type="button"
+                                    className="auth-pw-toggle"
+                                    onClick={() => setShowPw(v => !v)}
+                                    tabIndex={-1}
+                                >
+                                    {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                                </button>
+                            </div>
                         </div>
 
-                        <button type="submit" className="btn-primary auth-submit">
-                            {isSignup ? 'Sign Up' : 'Sign In'}
+                        <button type="submit" className="auth-submit-btn" disabled={loading}>
+                            {loading ? <span className="auth-spinner" /> : <ArrowRight size={16} />}
+                            {loading
+                                ? (mode === 'login' ? 'Signing in…' : 'Creating account…')
+                                : (mode === 'login' ? 'Sign In' : 'Create Account')}
                         </button>
                     </form>
 
-                    <div className="auth-divider">
-                        <span>OR CONTINUE WITH</span>
-                    </div>
+                    {/* Divider */}
+                    <div className="auth-divider"><span>or continue with</span></div>
 
-                    <div className="google-btn-wrapper">
-                        <GoogleLogin
-                            onSuccess={async (credentialResponse) => {
-                                try {
-                                    await googleLogin(credentialResponse);
-                                    navigate('/dashboard');
-                                } catch (err) {
-                                    setError('Google login failed');
-                                }
-                            }}
-                            onError={() => {
-                                setError('Google Login Failed');
-                            }}
-                        />
-                    </div>
+                    {/* OAuth buttons */}
+                    <div className="auth-oauth-row">
+                        {/* Google — uses the @react-oauth/google component rendered invisible then triggered */}
+                        <div className="auth-oauth-btn-wrap google">
+                            <GoogleLogin
+                                onSuccess={handleGoogleSuccess}
+                                onError={() => setError('Google Login Failed')}
+                                useOneTap={false}
+                                render={renderProps => (
+                                    <button
+                                        className="auth-oauth-btn"
+                                        onClick={renderProps.onClick}
+                                        disabled={renderProps.disabled}
+                                    >
+                                        <svg width="18" height="18" viewBox="0 0 48 48">
+                                            <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.7 33.3 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.7-8 20-19.9.1-.7.1-2.7-.4-4.1z" />
+                                            <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.8 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.4 6.3 14.7z" />
+                                            <path fill="#4CAF50" d="M24 44c5.2 0 10-1.9 13.6-5l-6.3-5.3C29.5 35.5 26.9 36 24 36c-5.2 0-9.6-3.5-11.2-8.2l-6.5 5C9.7 39.6 16.3 44 24 44z" />
+                                            <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.3-4.5 5.7l6.3 5.3C41.3 35.7 44 30.3 44 24c0-1.3-.1-2.7-.4-4z" />
+                                        </svg>
+                                        Google
+                                    </button>
+                                )}
+                            />
+                        </div>
 
-                    <div className="auth-footer">
-                        {isSignup ? "Already have an account?" : "Don't have an account?"}
                         <button
-                            className="btn-link"
-                            onClick={() => setIsSignup(!isSignup)}
+                            className="auth-oauth-btn"
+                            onClick={handleMicrosoft}
+                            disabled={msLoading}
                         >
-                            {isSignup ? 'Sign In' : 'Sign Up'}
+                            {msLoading ? <span className="auth-spinner" /> : <MicrosoftIcon />}
+                            Microsoft
                         </button>
                     </div>
+
+                    <p className="auth-switch-text">
+                        {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}
+                        {' '}
+                        <button
+                            className="auth-switch-btn"
+                            onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(null); }}
+                        >
+                            {mode === 'login' ? 'Sign Up' : 'Sign In'}
+                        </button>
+                    </p>
                 </div>
             </div>
-
-            <style jsx>{`
-                .auth-container {
-                    display: flex;
-                    height: calc(100vh - 56px); /* Subtract navbar height */
-                    width: 100vw;
-                    overflow: hidden;
-                    background: var(--bg-primary);
-                }
-
-                /* Left Side */
-                .auth-visuals {
-                    flex: 1;
-                    background: var(--bg-tertiary);
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: center;
-                    padding: 4rem;
-                    position: relative;
-                    border-right: 1px solid var(--border-primary);
-                }
-                
-                .visuals-content {
-                    max-width: 480px;
-                    margin: 0 auto;
-                }
-
-                .logo-badge {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    margin-bottom: 2rem;
-                    font-weight: 700;
-                    font-size: 1.25rem;
-                    color: var(--text-primary);
-                }
-
-                .logo-icon-lg {
-                    font-size: 1.2rem;
-                    font-weight: 800;
-                    background: var(--gradient-primary);
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                    border: 2px solid var(--accent);
-                    border-radius: 8px;
-                    padding: 4px 8px;
-                }
-
-                .auth-visuals h1 {
-                    font-size: 3rem;
-                    line-height: 1.1;
-                    font-weight: 800;
-                    color: var(--text-primary);
-                    margin-bottom: 1.5rem;
-                    letter-spacing: -0.02em;
-                }
-
-                .auth-visuals p {
-                    font-size: 1.1rem;
-                    color: var(--text-secondary);
-                    line-height: 1.6;
-                    margin-bottom: 2.5rem;
-                }
-
-                .visual-features {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 1rem;
-                }
-
-                .visual-feature-item {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
-                    font-size: 1rem;
-                    color: var(--text-primary);
-                    font-weight: 500;
-                }
-
-                /* Right Side */
-                .auth-form-side {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    padding: 2rem;
-                    background: var(--bg-primary);
-                    overflow-y: auto;
-                    height: 100%;
-                    position: relative;
-                }
-
-                .auth-card-minimal {
-                    width: 100%;
-                    max-width: 400px;
-                    margin: auto;
-                    padding: 2rem 0;
-                }
-
-                .auth-header {
-                    margin-bottom: 2rem;
-                    text-align: center;
-                    position: relative;
-                }
-
-                .auth-header h2 {
-                    font-size: 1.75rem;
-                    font-weight: 700;
-                    color: var(--text-primary);
-                    margin-bottom: 0.5rem;
-                }
-
-                .auth-subtitle {
-                    color: var(--text-secondary);
-                    font-size: 0.95rem;
-                }
-
-                .auth-error {
-                    background: rgba(239, 68, 68, 0.1);
-                    color: var(--danger);
-                    border: 1px solid rgba(239, 68, 68, 0.2);
-                    padding: 0.75rem;
-                    border-radius: var(--radius-md);
-                    font-size: 0.9rem;
-                    margin-bottom: 1.5rem;
-                    text-align: center;
-                }
-
-                .form-group {
-                    margin-bottom: 1.25rem;
-                }
-
-                .form-group label {
-                    display: block;
-                    margin-bottom: 0.5rem;
-                    font-size: 0.9rem;
-                    color: var(--text-primary);
-                    font-weight: 500;
-                }
-
-                .form-group input {
-                    width: 100%;
-                    padding: 0.85rem 1rem;
-                    border: 1px solid var(--border-primary);
-                    border-radius: var(--radius-md);
-                    background: var(--bg-input);
-                    color: var(--text-primary);
-                    font-size: 0.95rem;
-                    transition: all 0.2s;
-                }
-
-                .form-group input:focus {
-                    outline: none;
-                    border-color: var(--accent);
-                    box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
-                    background: var(--bg-secondary);
-                }
-
-                .auth-submit {
-                    width: 100%;
-                    margin-top: 0.5rem;
-                    padding: 0.85rem;
-                    font-size: 1rem;
-                    font-weight: 600;
-                    border-radius: var(--radius-md);
-                }
-
-                .auth-divider {
-                    display: flex;
-                    align-items: center;
-                    margin: 2rem 0;
-                    color: var(--text-muted);
-                    font-size: 0.75rem;
-                    font-weight: 600;
-                    letter-spacing: 0.05em;
-                    text-transform: uppercase;
-                }
-
-                .auth-divider::before, .auth-divider::after {
-                    content: '';
-                    flex: 1;
-                    height: 1px;
-                    background: var(--border-primary);
-                }
-
-                .auth-divider span {
-                    padding: 0 1rem;
-                }
-
-                .google-btn-wrapper {
-                    display: flex;
-                    justify-content: center;
-                    margin-bottom: 2rem;
-                }
-
-                .auth-footer {
-                    text-align: center;
-                    font-size: 0.95rem;
-                    color: var(--text-secondary);
-                }
-
-                .btn-link {
-                    background: none;
-                    border: none;
-                    color: var(--accent);
-                    cursor: pointer;
-                    margin-left: 0.5rem;
-                    font-weight: 600;
-                    font-size: 0.95rem;
-                }
-
-                .btn-link:hover {
-                    text-decoration: underline;
-                    color: var(--accent-hover);
-                }
-
-                /* Mobile Responsive */
-                @media (max-width: 768px) {
-                    .auth-visuals {
-                        display: none;
-                    }
-                }
-            `}</style>
         </div>
     );
 }

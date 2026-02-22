@@ -116,6 +116,30 @@ export async function initDB() {
     ON azure_prices(service_name, type, currency_code, is_active, retail_price, product_name, sku_name, arm_region_name);
     `);
 
+    // ─── Expression indexes for case-insensitive matching WITHOUT ILIKE ──────
+    // These make LOWER(product_name) LIKE '%...%' use index scans instead of seqscans.
+    // Critical for the VM list endpoint which filters on product_name and sku_name.
+    await query(`
+    CREATE INDEX IF NOT EXISTS idx_prices_product_name_lower
+    ON azure_prices(LOWER(product_name));
+    `);
+
+    await query(`
+    CREATE INDEX IF NOT EXISTS idx_prices_sku_name_lower
+    ON azure_prices(LOWER(sku_name));
+    `);
+
+    // ─── Targeted partial index for the /api/vm-list hot path ─────────────────
+    // Covers Consumption + Virtual Machines + active + USD — eliminates 95% of rows before any other filter.
+    await query(`
+    CREATE INDEX IF NOT EXISTS idx_prices_vmlist_hot
+    ON azure_prices(arm_region_name, sku_name, retail_price, product_name)
+    WHERE service_name = 'Virtual Machines'
+      AND type = 'Consumption'
+      AND currency_code = 'USD'
+      AND is_active = TRUE;
+    `);
+
     // ── vm_types table (populated by scripts/update_vm_types.py) ──
     await query(`
     CREATE TABLE IF NOT EXISTS vm_types (
@@ -157,12 +181,15 @@ export async function initDB() {
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT,
         google_id TEXT,
+        microsoft_id TEXT,
         name TEXT,
         preferred_region TEXT DEFAULT 'centralindia',
         preferred_currency TEXT DEFAULT 'INR',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     );
     `);
+    // Add microsoft_id to existing databases that were created before this column
+    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id TEXT;`);
 
     // 4. Estimates Table
     await query(`

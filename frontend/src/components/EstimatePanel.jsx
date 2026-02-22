@@ -1,18 +1,63 @@
 import { useState } from 'react';
-import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check } from 'lucide-react';
+import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check, Save, X, LogIn } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
+import { useAuth } from '../context/AuthContext';
 import { formatPrice } from '../services/azurePricingApi';
+import { useNavigate } from 'react-router-dom';
 
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function EstimatePanel() {
     const {
         items, currency, removeItem, updateItem,
         clearAll, totalMonthlyCost, refreshing,
     } = useEstimate();
+    const { user, token } = useAuth();
+    const navigate = useNavigate();
     const [editingId, setEditingId] = useState(null);
     const [editPrice, setEditPrice] = useState('');
+
+    // Save estimate state
+    const [showSaveForm, setShowSaveForm] = useState(false);
+    const [saveName, setSaveName] = useState('');
+    const [saveLoading, setSaveLoading] = useState(false);
+    const [saveMsg, setSaveMsg] = useState(null); // { type: 'ok'|'err', text }
+
+    async function handleSaveEstimate() {
+        if (!saveName.trim()) return;
+        setSaveLoading(true);
+        setSaveMsg(null);
+        try {
+            const res = await fetch(`${API_URL}/estimates`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    name: saveName.trim(),
+                    items,
+                    total_cost: totalMonthlyCost,
+                    currency,
+                }),
+            });
+            if (!res.ok) {
+                const d = await res.json();
+                throw new Error(d.error || 'Save failed');
+            }
+            setSaveMsg({ type: 'ok', text: `"${saveName.trim()}" saved!` });
+            setSaveName('');
+            setShowSaveForm(false);
+            setTimeout(() => setSaveMsg(null), 3000);
+        } catch (err) {
+            setSaveMsg({ type: 'err', text: err.message });
+        } finally {
+            setSaveLoading(false);
+        }
+    }
 
     function startEditPrice(item) {
         setEditingId(item.id);
@@ -273,7 +318,59 @@ export default function EstimatePanel() {
                     <div className="estimate-period">
                         ≈ {formatPrice(totalMonthlyCost * 12, currency)} / year
                     </div>
+
+                    {/* Save estimate message */}
+                    {saveMsg && (
+                        <div className={`est-save-msg ${saveMsg.type}`}>
+                            {saveMsg.type === 'ok' ? <Check size={12} /> : <X size={12} />}
+                            {saveMsg.text}
+                        </div>
+                    )}
+
+                    {/* Save estimate inline form */}
+                    {showSaveForm && user && (
+                        <div className="est-save-form">
+                            <input
+                                className="est-save-input"
+                                placeholder="Name this estimate…"
+                                value={saveName}
+                                onChange={e => setSaveName(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleSaveEstimate(); if (e.key === 'Escape') setShowSaveForm(false); }}
+                                autoFocus
+                                maxLength={80}
+                            />
+                            <button
+                                className="est-save-confirm-btn"
+                                onClick={handleSaveEstimate}
+                                disabled={saveLoading || !saveName.trim()}
+                            >
+                                {saveLoading ? '…' : <Check size={13} />}
+                            </button>
+                            <button className="est-save-cancel-btn" onClick={() => setShowSaveForm(false)}>
+                                <X size={13} />
+                            </button>
+                        </div>
+                    )}
+
                     <div className="estimate-actions">
+                        {/* Save button — only for logged-in users */}
+                        {user ? (
+                            <button
+                                className="btn-secondary est-save-btn"
+                                onClick={() => setShowSaveForm(v => !v)}
+                                title="Save this estimate"
+                            >
+                                <Save size={14} /> Save
+                            </button>
+                        ) : (
+                            <button
+                                className="btn-secondary est-login-prompt-btn"
+                                onClick={() => navigate('/login')}
+                                title="Sign in to save estimates"
+                            >
+                                <LogIn size={14} /> Sign in to save
+                            </button>
+                        )}
                         <button className="btn-primary" onClick={handleExportExcel}>
                             <Download size={14} />
                             Convert to Excel

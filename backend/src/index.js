@@ -4,8 +4,7 @@ import dotenv from 'dotenv';
 import { initDB, queryPrices, getLastSync, getPriceCount, getBestVmPrices } from './db.js';
 import { runFullSync, runQuickSync } from './sync.js';
 import { initScheduler } from './scheduler.js';
-import authRouter from './auth.js';
-import estimatesRouter from './estimates.js';
+import authRouter, { authenticateToken } from './auth.js';
 import { lookupSpec, normalizeSkuName, specMap } from './vmSpecs.js';
 
 dotenv.config();
@@ -19,7 +18,6 @@ app.use(express.json());
 
 // ── Routes ──────────────────────────────────────
 app.use('/api/auth', authRouter);
-app.use('/api/estimates', estimatesRouter);
 
 /**
  * GET /api/prices
@@ -182,12 +180,12 @@ app.get('/api/vm-list', async (req, res) => {
                   AND is_active = TRUE
                   AND arm_region_name = $1
                   AND retail_price > 0
-                  AND product_name NOT ILIKE '%Windows%'
-                  AND product_name NOT ILIKE '%Spot%'
-                  AND product_name NOT ILIKE '%Low Priority%'
-                  AND sku_name    NOT ILIKE '%Spot%'
-                  AND sku_name    NOT ILIKE '%Low Priority%'
-                  ${search ? `AND (sku_name ILIKE $${paramIdx - 1} OR product_name ILIKE $${paramIdx - 1})` : ''}
+                  AND LOWER(product_name) NOT LIKE '%windows%'
+                  AND LOWER(product_name) NOT LIKE '%spot%'
+                  AND LOWER(product_name) NOT LIKE '%low priority%'
+                  AND LOWER(sku_name)     NOT LIKE '%spot%'
+                  AND LOWER(sku_name)     NOT LIKE '%low priority%'
+                  ${search ? `AND (LOWER(sku_name) LIKE LOWER($${paramIdx - 1}) OR LOWER(product_name) LIKE LOWER($${paramIdx - 1}))` : ''}
                 GROUP BY sku_name
             ),
             windows_prices AS (
@@ -199,10 +197,10 @@ app.get('/api/vm-list', async (req, res) => {
                   AND is_active = TRUE
                   AND arm_region_name = $1
                   AND retail_price > 0
-                  AND product_name ILIKE '%Windows%'
-                  AND product_name NOT ILIKE '%Spot%'
-                  AND sku_name    NOT ILIKE '%Spot%'
-                  AND sku_name    NOT ILIKE '%Low Priority%'
+                  AND LOWER(product_name) LIKE '%windows%'
+                  AND LOWER(product_name) NOT LIKE '%spot%'
+                  AND LOWER(sku_name)     NOT LIKE '%spot%'
+                  AND LOWER(sku_name)     NOT LIKE '%low priority%'
                 GROUP BY sku_name
             ),
             best_prices AS (
@@ -215,10 +213,10 @@ app.get('/api/vm-list', async (req, res) => {
                   AND currency_code = 'USD'
                   AND is_active = TRUE
                   AND retail_price > 0
-                  AND product_name NOT ILIKE '%Windows%'
-                  AND product_name NOT ILIKE '%Spot%'
-                  AND sku_name    NOT ILIKE '%Spot%'
-                  AND sku_name    NOT ILIKE '%Low Priority%'
+                  AND LOWER(product_name) NOT LIKE '%windows%'
+                  AND LOWER(product_name) NOT LIKE '%spot%'
+                  AND LOWER(sku_name)     NOT LIKE '%spot%'
+                  AND LOWER(sku_name)     NOT LIKE '%low priority%'
                 GROUP BY sku_name, arm_region_name
                 ORDER BY sku_name, min(retail_price)
             ),
@@ -237,7 +235,7 @@ app.get('/api/vm-list', async (req, res) => {
                      THEN ROUND(((l.linux_price - lr.best_price) / l.linux_price * 100)::numeric, 1)
                      ELSE 0
                 END AS diff_percent,
-                -- Join vm_types for real spec data
+                -- Join vm_types for real spec data (canonical_name matches normalised sku e.g. "Standard_D2s_v3")
                 vt.number_of_cores,
                 vt.memory_mb,
                 vt.canonical_name,
@@ -264,8 +262,8 @@ app.get('/api/vm-list', async (req, res) => {
             FROM linux_prices l
             LEFT JOIN windows_prices w ON l.sku_name = w.sku_name
             LEFT JOIN lowest_region lr ON l.sku_name = lr.sku_name
-            LEFT JOIN vm_types vt ON vt.name ILIKE 'Standard_' || REPLACE(l.sku_name, ' ', '_')
-            ORDER BY l.sku_name ASC
+            LEFT JOIN vm_types vt ON LOWER(vt.name) = LOWER('Standard_' || REPLACE(l.sku_name, ' ', '_'))
+            ORDER BY l.linux_price ASC NULLS LAST
             LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
         `;
 
@@ -491,18 +489,21 @@ app.get('/api/vm-list', async (req, res) => {
         const safeLimit = Math.max(1, parseInt(limit) || 100);
         const safeOffset = Math.max(0, parseInt(offset) || 0);
 
-        // Fetch currency rate if neededrom DB ────────────────────────
-        //    currency_rates stores rate_from_usd, e.g. INR = 83.5
-        //    If currency is USD just use 1.0 (no extra query needed)
         const { query } = await import('./db.js');
 
+        // ── In-memory currency cache (5-min TTL) ─────────────────────
+        const CURRENCY_CACHE = app._currencyCache || (app._currencyCache = new Map());
+        const cacheKey = currency.toUpperCase();
+        const cached = CURRENCY_CACHE.get(cacheKey);
         let rate = 1.0;
-        if (currency.toUpperCase() !== 'USD') {
+        if (cacheKey === 'USD') {
+            rate = 1.0;
+        } else if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+            rate = cached.rate;
+        } else {
             const rateResult = await query(
-                `SELECT rate_from_usd
-                 FROM currency_rates
-                 WHERE currency_code = $1`,
-                [currency.toUpperCase()]
+                `SELECT rate_from_usd FROM currency_rates WHERE currency_code = $1`,
+                [cacheKey]
             );
             if (rateResult.rows.length === 0) {
                 return res.status(400).json({
@@ -510,6 +511,7 @@ app.get('/api/vm-list', async (req, res) => {
                 });
             }
             rate = parseFloat(rateResult.rows[0].rate_from_usd);
+            CURRENCY_CACHE.set(cacheKey, { rate, ts: Date.now() });
         }
 
         // ── 2. Query base USD prices from PostgreSQL ─────────────────
@@ -525,27 +527,26 @@ app.get('/api/vm-list', async (req, res) => {
         let searchClause = '';
         if (search && search.trim()) {
             let searchTerm = search.trim();
-            // If user types 'standard_a', strip it to 'a' so it matches raw sku 'A0'
             if (searchTerm.toLowerCase().startsWith('standard_')) {
                 searchTerm = searchTerm.substring(9);
             }
-            searchClause = `AND p.sku_name ILIKE $${paramIdx}`;
-            args.push(`%${searchTerm}%`);
+            // Use LOWER() LIKE instead of ILIKE so covered by expression index
+            searchClause = `AND LOWER(p.sku_name) LIKE $${paramIdx}`;
+            args.push(`%${searchTerm.toLowerCase()}%`);
             paramIdx++;
         }
 
         const sql = `
             SELECT
-                -- Normalise DB sku_name to Standard_* format in SQL for grouping
                 CONCAT('Standard_', REPLACE(TRIM(p.sku_name), ' ', '_')) AS sku_key,
                 p.sku_name                                                AS raw_sku,
 
-                -- Linux price: rows where product_name does NOT contain 'Windows'
-                MIN(CASE WHEN p.product_name NOT ILIKE '%windows%'
+                -- Linux price: rows where product_name does NOT contain 'windows'
+                MIN(CASE WHEN LOWER(p.product_name) NOT LIKE '%windows%'
                          THEN p.retail_price END)                         AS linux_usd,
 
-                -- Windows price: rows where product_name contains 'Windows'
-                MIN(CASE WHEN p.product_name ILIKE '%windows%'
+                -- Windows price: rows where product_name contains 'windows'
+                MIN(CASE WHEN LOWER(p.product_name) LIKE '%windows%'
                          THEN p.retail_price END)                         AS windows_usd
 
             FROM azure_prices p
@@ -555,9 +556,9 @@ app.get('/api/vm-list', async (req, res) => {
                 AND p.is_active = TRUE
                 AND p.service_name = 'Virtual Machines'
                 AND p.type = 'Consumption'
-                -- Exclude Spot and Low Priority entries from main list
-                AND p.sku_name NOT ILIKE '%spot%'
-                AND p.sku_name NOT ILIKE '%low priority%'
+                -- Exclude Spot and Low Priority using LOWER() LIKE (index-safe)
+                AND LOWER(p.sku_name) NOT LIKE '%spot%'
+                AND LOWER(p.sku_name) NOT LIKE '%low priority%'
                 ${searchClause}
             GROUP BY p.sku_name
             ORDER BY p.sku_name ASC
@@ -611,8 +612,6 @@ app.get('/api/vm-list', async (req, res) => {
 
         // ── 3.5. Apply Hardware Filters & Paginate ─────────────────────
         let filteredItems = items;
-
-        console.log('Query Filters:', { minVcpu, maxVcpu, minMemory, maxMemory });
 
         const minV = parseFloat(minVcpu);
         const maxV = parseFloat(maxVcpu);
@@ -723,6 +722,121 @@ app.post('/api/vms/compare', async (req, res) => {
     }
 });
 
+// ── Estimates CRUD ──────────────────────────────────────────────────
+
+/**
+ * GET /api/estimates
+ * Returns all estimates for the logged-in user (summary only, no full items)
+ */
+app.get('/api/estimates', authenticateToken, async (req, res) => {
+    try {
+        const { query } = await import('./db.js');
+        const result = await query(
+            `SELECT id, name, total_cost, currency, created_at, updated_at,
+                    jsonb_array_length(items) AS item_count
+             FROM estimates
+             WHERE user_id = $1
+             ORDER BY updated_at DESC`,
+            [req.user.id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Get estimates error:', err);
+        res.status(500).json({ error: 'Failed to fetch estimates' });
+    }
+});
+
+/**
+ * POST /api/estimates
+ * Create a new saved estimate
+ */
+app.post('/api/estimates', authenticateToken, async (req, res) => {
+    try {
+        const { name, items, total_cost, currency } = req.body;
+        if (!name) return res.status(400).json({ error: 'name is required' });
+        if (!items) return res.status(400).json({ error: 'items is required' });
+        const { query } = await import('./db.js');
+        const result = await query(
+            `INSERT INTO estimates (user_id, name, items, total_cost, currency)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING id, name, total_cost, currency, created_at, updated_at`,
+            [req.user.id, name.trim(), JSON.stringify(items), total_cost || 0, currency || 'USD']
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error('Create estimate error:', err);
+        res.status(500).json({ error: 'Failed to create estimate' });
+    }
+});
+
+/**
+ * GET /api/estimates/:id
+ * Returns a single estimate including full items array
+ */
+app.get('/api/estimates/:id', authenticateToken, async (req, res) => {
+    try {
+        const { query } = await import('./db.js');
+        const result = await query(
+            `SELECT * FROM estimates WHERE id = $1 AND user_id = $2`,
+            [req.params.id, req.user.id]
+        );
+        if (!result.rows[0]) return res.status(404).json({ error: 'Estimate not found' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Get estimate error:', err);
+        res.status(500).json({ error: 'Failed to fetch estimate' });
+    }
+});
+
+/**
+ * PUT /api/estimates/:id
+ * Update (rename or update items) of an existing estimate
+ */
+app.put('/api/estimates/:id', authenticateToken, async (req, res) => {
+    try {
+        const { name, items, total_cost, currency } = req.body;
+        const { query } = await import('./db.js');
+        const result = await query(
+            `UPDATE estimates
+             SET name = COALESCE($1, name),
+                 items = COALESCE($2::jsonb, items),
+                 total_cost = COALESCE($3, total_cost),
+                 currency = COALESCE($4, currency),
+                 updated_at = NOW()
+             WHERE id = $5 AND user_id = $6
+             RETURNING id, name, total_cost, currency, updated_at`,
+            [
+                name ? name.trim() : null,
+                items ? JSON.stringify(items) : null,
+                total_cost ?? null,
+                currency ?? null,
+                req.params.id,
+                req.user.id
+            ]
+        );
+        if (!result.rows[0]) return res.status(404).json({ error: 'Estimate not found' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Update estimate error:', err);
+        res.status(500).json({ error: 'Failed to update estimate' });
+    }
+});
+
+/**
+ * DELETE /api/estimates/:id
+ */
+app.delete('/api/estimates/:id', authenticateToken, async (req, res) => {
+    try {
+        const { query } = await import('./db.js');
+        await query(`DELETE FROM estimates WHERE id = $1 AND user_id = $2`, [req.params.id, req.user.id]);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('Delete estimate error:', err);
+        res.status(500).json({ error: 'Failed to delete estimate' });
+    }
+});
+
+// ── Startup ─────────────────────────────────────────────────────────
 start().catch(err => {
     console.error('Fatal startup error:', err);
     process.exit(1);

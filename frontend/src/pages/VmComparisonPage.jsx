@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, ArrowLeft, X, Check, ChevronDown, Download, SlidersHorizontal, Info } from 'lucide-react';
+﻿import { useState, useEffect } from 'react';
+import { Search, ArrowLeft, X, Check, ChevronDown, Download, SlidersHorizontal, Info, ArrowUp, ArrowDown } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
 import { VM_SPECS } from '../data/vmSpecs';
 import { fetchVmList, fetchVmComparison, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES } from '../services/azurePricingApi';
 import { AZURE_REGIONS } from '../data/serviceCatalog';
 
-// ── Helpers ──────────────────────────────────────────────────────
+// "€"€ Helpers "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 
 // Build a case-insensitive lookup map from VM_SPECS keys
 const VM_SPECS_MAP = {};
@@ -26,16 +26,16 @@ function lookupSpec(skuName) {
 }
 
 const SERIES_MAP = {
-    A: 'A — Entry-level VMs for dev/test',
-    B: 'B — Burstable economical VMs',
-    D: 'D — General purpose with balanced performance',
-    E: 'E — Memory optimized with high memory-to-CPU',
-    F: 'F — Compute optimized with high CPU-to-memory',
-    G: 'G — Memory and storage optimized',
-    H: 'H — High performance computing',
-    L: 'L — Storage optimized with high disk throughput',
-    M: 'M — Memory optimized with ultra high core count',
-    N: 'N — GPU enabled VMs',
+    A: 'A â€” Entry-level VMs for dev/test',
+    B: 'B â€” Burstable economical VMs',
+    D: 'D â€” General purpose with balanced performance',
+    E: 'E â€” Memory optimized with high memory-to-CPU',
+    F: 'F â€” Compute optimized with high CPU-to-memory',
+    G: 'G â€” Memory and storage optimized',
+    H: 'H â€” High performance computing',
+    L: 'L â€” Storage optimized with high disk throughput',
+    M: 'M â€” Memory optimized with ultra high core count',
+    N: 'N â€” GPU enabled VMs',
 };
 
 function getTooltipLines(skuName, spec) {
@@ -51,17 +51,17 @@ function getTooltipLines(skuName, spec) {
         if (letter && SERIES_MAP[letter]) lines.push(SERIES_MAP[letter]);
         // Extract vCPU number from sku part
         const vcpuMatch = parts[0].match(/([A-Za-z]+)(\d+)/);
-        if (vcpuMatch) lines.push(`${vcpuMatch[2]} — The number of vCPUs`);
+        if (vcpuMatch) lines.push(`${vcpuMatch[2]} â€” The number of vCPUs`);
     }
     const vPart = parts.find(p => /^v\d+$/i.test(p));
-    if (vPart) lines.push(`${vPart} — version`);
+    if (vPart) lines.push(`${vPart} â€” version`);
     if (spec?.vCpus && !lines.some(l => l.includes('vCPUs'))) {
-        lines.push(`${spec.vCpus} — The number of vCPUs`);
+        lines.push(`${spec.vCpus} â€” The number of vCPUs`);
     }
     return lines;
 }
 
-// ── Tooltip component ─────────────────────────────────────────────
+// "€"€ Tooltip component "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 function VmTooltip({ lines }) {
     if (!lines || lines.length === 0) return null;
     return (
@@ -81,13 +81,13 @@ function BoolCell({ value }) {
     );
 }
 
-// ── Compare View ──────────────────────────────────────────────────
+// "€"€ Compare View "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, setCurrency }) {
     const [os, setOs] = useState('linux');
     const [compareData, setCompareData] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    // Build a map from skuName → API row data (has vCpus, memoryGib, etc. from DB)
+    // Build a map from skuName â†’ API row data (has vCpus, memoryGib, etc. from DB)
     const apiSpecMap = {};
     vmRows.forEach(vm => { apiSpecMap[vm.skuName] = vm; });
 
@@ -180,36 +180,36 @@ function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, 
                                 </td>
                             ))}
                         </tr>
-                        {specRow('vCPUs', sku => getSpec(sku).vCpus ?? '—')}
+                        {specRow('vCPUs', sku => getSpec(sku).vCpus ?? 'â€”')}
                         {specRow('CPU Architecture', sku => getSpec(sku).architecture || 'x64')}
-                        {specRow('Memory (GiB)', sku => getSpec(sku).memoryGib ?? '—')}
+                        {specRow('Memory (GiB)', sku => getSpec(sku).memoryGib ?? 'â€”')}
                         {specRow('Hyper-V Generations', sku => getSpec(sku).hyperVGen || 'V1')}
-                        {specRow('ACUs', sku => getSpec(sku).acus ?? '—')}
+                        {specRow('ACUs', sku => getSpec(sku).acus ?? 'â€”')}
                         {specRow('GPUs', sku => getSpec(sku).gpus ?? 0)}
 
                         <tr className="section-row"><td colSpan={selectedSkus.length + 1}>Network & Disk</td></tr>
-                        {specRow('Max Network Interfaces', sku => getSpec(sku).maxNics ?? '—')}
+                        {specRow('Max Network Interfaces', sku => getSpec(sku).maxNics ?? 'â€”')}
                         {specRow('RDMA Enabled', sku => <BoolCell value={getSpec(sku).rdma} />)}
                         {specRow('Accelerated Net', sku => <BoolCell value={getSpec(sku).acceleratedNet} />)}
                         {specRow('OS Disk Size', sku => {
                             const s = getSpec(sku);
-                            return s.osDiskSizeMb ? `${(s.osDiskSizeMb / 1024).toFixed(0)} GiB` : '—';
+                            return s.osDiskSizeMb ? `${(s.osDiskSizeMb / 1024).toFixed(0)} GiB` : 'â€”';
                         })}
                         {specRow('Res Disk Size', sku => {
                             const s = getSpec(sku);
-                            return s.resDiskSizeMb ? `${(s.resDiskSizeMb / 1024).toFixed(0)} GiB` : '—';
+                            return s.resDiskSizeMb ? `${(s.resDiskSizeMb / 1024).toFixed(0)} GiB` : 'â€”';
                         })}
-                        {specRow('Max Data Disks', sku => getSpec(sku).maxDisks ?? '—')}
+                        {specRow('Max Data Disks', sku => getSpec(sku).maxDisks ?? 'â€”')}
                         {specRow('Support Premium Disk', sku => <BoolCell value={getSpec(sku).premiumDisk} />)}
-                        {specRow('Combined IOPS', sku => getSpec(sku).combinedIops ?? '—', "Combined IOPS is a sum of all attached disk's IOPs")}
-                        {specRow('Uncached Disk IOPS', sku => getSpec(sku).uncachedIops ?? '—')}
+                        {specRow('Combined IOPS', sku => getSpec(sku).combinedIops ?? 'â€”', "Combined IOPS is a sum of all attached disk's IOPs")}
+                        {specRow('Uncached Disk IOPS', sku => getSpec(sku).uncachedIops ?? 'â€”')}
                         {specRow('Combined Write Throughput', sku => {
                             const bytes = getSpec(sku).combinedWriteBytes;
-                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : '—';
+                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : 'â€”';
                         }, "Combined Write is a sum of all attached disk's write throughput")}
                         {specRow('Combined Read Throughput', sku => {
                             const bytes = getSpec(sku).combinedReadBytes;
-                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : '—';
+                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : 'â€”';
                         }, "Combined Read is a sum of all attached disk's read throughput")}
 
                         <tr className="section-row"><td colSpan={selectedSkus.length + 1}>Price Summary</td></tr>
@@ -217,7 +217,7 @@ function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, 
                             <td className="label-col">Perf Score Ratio</td>
                             {selectedSkus.map(sku => {
                                 const score = getSpec(sku)?.perfScore || 1;
-                                return <td key={sku}><strong>{firstSkuScore > 0 ? (score / firstSkuScore).toFixed(2) : '—'}x</strong></td>;
+                                return <td key={sku}><strong>{firstSkuScore > 0 ? (score / firstSkuScore).toFixed(2) : 'â€”'}x</strong></td>;
                             })}
                         </tr>
 
@@ -269,7 +269,7 @@ function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, 
                                         const entry = regions[sku]?.find(e => e.region === regionCode);
                                         return (
                                             <td key={sku} className="price-cell">
-                                                {entry ? formatPrice(entry.price, currency) : <span className="text-muted">—</span>}
+                                                {entry ? formatPrice(entry.price, currency) : <span className="text-muted">â€”</span>}
                                             </td>
                                         );
                                     })}
@@ -283,99 +283,114 @@ function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, 
     );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────
+// "€"€ Main Page "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
 export default function VmComparisonPage() {
     const { region, currency, setCurrency } = useEstimate();
 
     const [searchQuery, setSearchQuery] = useState('');
-    const [debouncedSearch, setDebouncedSearch] = useState('');
-    const [vmRows, setVmRows] = useState([]);
+    const [allVms, setAllVms] = useState([]);       // all VMs loaded from backend
+    const [vmRows, setVmRows] = useState([]);         // filtered view shown in table
     const [loading, setLoading] = useState(true);
-    const [offset, setOffset] = useState(0);
-    const [hasMore, setHasMore] = useState(true);
+    const [loadError, setLoadError] = useState(null);
+    const [sortConfig, setSortConfig] = useState({ key: 'linuxPrice', direction: 'asc' });
     const [selectedSkus, setSelectedSkus] = useState([]);
     const [isComparing, setIsComparing] = useState(false);
     const [showPricingCard, setShowPricingCard] = useState(false);
-    const [pricingPeriod, setPricingPeriod] = useState('monthly'); // 'monthly', 'hourly', or 'custom'
+    const [pricingPeriod, setPricingPeriod] = useState('monthly');
     const [customHours, setCustomHours] = useState(730);
     const [pricingData, setPricingData] = useState(null);
     const [pricingLoading, setPricingLoading] = useState(false);
 
-    // Hardware Filters
+    // Hardware Filters (client-side)
     const [minVcpu, setMinVcpu] = useState('');
     const [maxVcpu, setMaxVcpu] = useState('');
     const [minMemory, setMinMemory] = useState('');
     const [maxMemory, setMaxMemory] = useState('');
 
-    // Debounced Filter State
-    const [debouncedFilters, setDebouncedFilters] = useState({
-        search: '', minVcpu: '', maxVcpu: '', minMemory: '', maxMemory: ''
-    });
-
     const [lastUpdate, setLastUpdate] = useState(null);
     const [hoveredSku, setHoveredSku] = useState(null);
-    const LIMIT = 100;
 
-    const searchTimeout = useRef(null);
-
-    // Unified debouncer for all filters
+    // Fetch last sync time once
     useEffect(() => {
-        clearTimeout(searchTimeout.current);
-        searchTimeout.current = setTimeout(() => {
-            setDebouncedFilters({
-                search: searchQuery,
-                minVcpu, maxVcpu, minMemory, maxMemory
-            });
-            setOffset(0);
-            setVmRows([]);
-        }, 500);
-        return () => clearTimeout(searchTimeout.current);
-    }, [searchQuery, minVcpu, maxVcpu, minMemory, maxMemory]);
-
-    useEffect(() => {
-        const apiBase = import.meta.env.VITE_API_URL || '/azproxy';
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
         fetch(`${apiBase}/health`)
             .then(r => r.json())
-            .then(d => {
-                if (d.lastSync?.completedAt) setLastUpdate(new Date(d.lastSync.completedAt));
-            })
+            .then(d => { if (d.lastSync?.completedAt) setLastUpdate(new Date(d.lastSync.completedAt)); })
             .catch(() => { });
     }, []);
 
-    const loadRows = useCallback(async (currentOffset, reset = false) => {
-        setLoading(true);
-        try {
-            const data = await fetchVmList({
-                currency,
-                region,
-                search: debouncedFilters.search,
-                minVcpu: debouncedFilters.minVcpu,
-                maxVcpu: debouncedFilters.maxVcpu,
-                minMemory: debouncedFilters.minMemory,
-                maxMemory: debouncedFilters.maxMemory,
-                limit: LIMIT,
-                offset: currentOffset,
-            });
-            const newRows = data.items || [];
-            setVmRows(prev => reset ? newRows : [...prev, ...newRows]);
-            setHasMore(newRows.length === LIMIT);
-        } catch (err) {
-            console.error('Failed to load VM list', err);
-        } finally {
-            setLoading(false);
-        }
-    }, [currency, region, debouncedFilters]);
-
+    // Fetch ALL VMs when region or currency changes (only two triggers)
     useEffect(() => {
-        setOffset(0);
+        let cancelled = false;
+        setLoading(true);
+        setLoadError(null);
+        setAllVms([]);
         setVmRows([]);
-        loadRows(0, true);
-    }, [currency, region, debouncedFilters]);
 
-    const loadMore = () => {
-        const next = offset + LIMIT;
-        setOffset(next);
-        loadRows(next);
+        fetchVmList({ currency, region, limit: 2000, offset: 0 })
+            .then(data => {
+                if (cancelled) return;
+                const rows = data.items || [];
+                setAllVms(rows);
+                setVmRows(rows); // start with full list, filters apply next
+            })
+            .catch(err => {
+                if (!cancelled) setLoadError(err.message || 'Failed to load VM list');
+            })
+            .finally(() => { if (!cancelled) setLoading(false); });
+
+        return () => { cancelled = true; };
+    }, [currency, region]);
+
+    // Client-side filter — runs instantly whenever filters or the full VM list changes
+    useEffect(() => {
+        const q = searchQuery.trim().toLowerCase();
+        const minV = parseFloat(minVcpu);
+        const maxV = parseFloat(maxVcpu);
+        const minM = parseFloat(minMemory);
+        const maxM = parseFloat(maxMemory);
+
+        let rows = allVms;
+
+        if (q) {
+            // strip 'standard_' prefix so 'd4s' matches 'Standard_D4s_v3'
+            const term = q.startsWith('standard_') ? q.slice(9) : q;
+            rows = rows.filter(vm => vm.skuName.toLowerCase().includes(term));
+        }
+        if (!isNaN(minV)) rows = rows.filter(vm => (vm.specs?.vCpus ?? lookupSpec(vm.skuName)?.vCpus ?? 0) >= minV);
+        if (!isNaN(maxV)) rows = rows.filter(vm => (vm.specs?.vCpus ?? lookupSpec(vm.skuName)?.vCpus ?? 9999) <= maxV);
+        if (!isNaN(minM)) rows = rows.filter(vm => (vm.specs?.memoryGib ?? lookupSpec(vm.skuName)?.memory ?? 0) >= minM);
+        if (!isNaN(maxM)) rows = rows.filter(vm => (vm.specs?.memoryGib ?? lookupSpec(vm.skuName)?.memory ?? 9999) <= maxM);
+
+        rows.sort((a, b) => {
+            const getVal = (vm, key) => {
+                const spec = lookupSpec(vm.skuName);
+                if (key === 'vCpus') return vm.vCpus ?? spec?.vCpus ?? 0;
+                if (key === 'memoryGib') return vm.memoryGib ?? spec?.memory ?? spec?.memoryGib ?? 0;
+                if (key === 'linuxPrice') return vm.linuxPrice ?? 999999;
+                if (key === 'windowsPrice') return vm.windowsPrice ?? 999999;
+                if (key === 'bestRegion') return vm.bestRegion || 'zzz';
+                if (key === 'diffPercent') return vm.diffPercent ?? 0;
+                return vm.skuName;
+            };
+
+            const aVal = getVal(a, sortConfig.key);
+            const bVal = getVal(b, sortConfig.key);
+
+            if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        setVmRows(rows);
+    }, [allVms, searchQuery, minVcpu, maxVcpu, minMemory, maxMemory, sortConfig]);
+
+    const handleSort = (key) => {
+        let direction = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
     };
 
     const toggleSelection = (sku) => {
@@ -421,7 +436,7 @@ export default function VmComparisonPage() {
 
     const updateDate = lastUpdate
         ? lastUpdate.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
-        : '—';
+        : 'â€”';
 
     if (isComparing) {
         return (
@@ -440,30 +455,31 @@ export default function VmComparisonPage() {
 
     return (
         <div className="vm-page content-area">
-            {/* Hero */}
+            {/* "€"€ Hero "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
             <div className="vm-hero-block">
                 <div className="vm-hero-top">
-                    <h1 className="vm-hero-title">Azure VM Comparison</h1>
+                    <div>
+                        <h1 className="vm-hero-title">Azure VM Pricing</h1>
+                        <p className="vm-hero-subtitle">
+                            {allVms.length > 0 && !loading ? <><strong>{allVms.length}</strong> VMs{vmRows.length < allVms.length ? ` · ${vmRows.length} filtered` : ''} · </> : ''}
+                            <span className="vm-update-chip">
+                                {lastUpdate ? `Updated ${lastUpdate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Loading data...'}
+                            </span>
+                        </p>
+                    </div>
                     <div className="vm-hero-badges">
-                        <button className="vm-badge-btn">
-                            <Download size={13} /> Batch Export API
-                        </button>
-                        <span className="vm-badge-text">Download complete pricing datasets</span>
+                        <span className="vm-badge-pill azure">Azure only</span>
+                        <span className="vm-badge-pill payg">Pay-as-you-go</span>
+                        <span className="vm-badge-pill hourly">Per Hour</span>
                     </div>
                 </div>
                 <p className="vm-hero-desc">
-                    Discover and compare Azure Virtual Machines, Amazon EC2, and GCP instance specifications and pricing
-                    across multiple tiers, payment options, and geographical regions, all on one comprehensive page.
-                    Use the 'Best Price Region' feature to quickly find where a specific VM offers the greatest value.
-                    For insights on optimizing cost vs. performance, visit our price/performance analysis page.
-                </p>
-                <p className="vm-hero-disclaimer">
-                    The data is frequently updated from the Azure API, but may not be accurate. This site is not affiliated
-                    with Microsoft or Azure. The latest update occurred on <strong>{updateDate} UTC</strong>
+                    Browse and compare Azure Virtual Machines across SKUs, vCPU counts, memory, Linux and Windows pricing.
+                    Select up to 2 VMs to compare specs and regional pricing side-by-side.
                 </p>
             </div>
 
-            {/* Controls bar */}
+            {/* "€"€ Controls bar "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
             <div className="vm-controls-bar">
                 <div className="controls-group">
                     <select className="ctrl-select" value={currency} onChange={e => setCurrency(e.target.value, [])}>
@@ -474,76 +490,99 @@ export default function VmComparisonPage() {
                     <span className="ctrl-divider" />
                     <span className="ctrl-pill">{getRegionLabel()}</span>
                     <span className="ctrl-divider" />
-                    <span className="ctrl-pill">Per Hour</span>
-                    <span className="ctrl-divider" />
                     <span className="ctrl-pill">Standard</span>
                     <span className="ctrl-divider" />
                     <span className="ctrl-pill highlight">Pay-as-you-go</span>
                 </div>
             </div>
 
-            {/* Filter row */}
+            {/* "€"€ Filter row "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
             <div className="vm-filter-row">
-                <div className="vm-stat-group" style={{ display: 'flex', gap: '16px' }}>
-                    <div className="vm-stat-chip" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className="stat-label">vCPUs:</span>
-                        <input type="number" className="input-control" placeholder="Min" value={minVcpu} onChange={e => setMinVcpu(e.target.value)} style={{ width: '60px', padding: '4px 8px' }} />
-                        <span className="stat-range">to</span>
-                        <input type="number" className="input-control" placeholder="Max" value={maxVcpu} onChange={e => setMaxVcpu(e.target.value)} style={{ width: '60px', padding: '4px 8px' }} />
+                <div className="vm-filter-group">
+                    <div className="vm-filter-chip">
+                        <label className="filter-label">vCPUs</label>
+                        <div className="filter-range-inputs">
+                            <input type="number" className="filter-range-input" placeholder="Min" min="1" value={minVcpu} onChange={e => setMinVcpu(e.target.value)} />
+                            <span className="filter-range-sep">â€“</span>
+                            <input type="number" className="filter-range-input" placeholder="Max" min="1" value={maxVcpu} onChange={e => setMaxVcpu(e.target.value)} />
+                        </div>
                     </div>
-                    <div className="vm-stat-chip" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className="stat-label">Memory (GiB):</span>
-                        <input type="number" className="input-control" placeholder="Min" value={minMemory} onChange={e => setMinMemory(e.target.value)} style={{ width: '60px', padding: '4px 8px' }} />
-                        <span className="stat-range">to</span>
-                        <input type="number" className="input-control" placeholder="Max" value={maxMemory} onChange={e => setMaxMemory(e.target.value)} style={{ width: '60px', padding: '4px 8px' }} />
+                    <div className="vm-filter-chip">
+                        <label className="filter-label">Memory (GiB)</label>
+                        <div className="filter-range-inputs">
+                            <input type="number" className="filter-range-input" placeholder="Min" min="1" value={minMemory} onChange={e => setMinMemory(e.target.value)} />
+                            <span className="filter-range-sep">â€“</span>
+                            <input type="number" className="filter-range-input" placeholder="Max" min="1" value={maxMemory} onChange={e => setMaxMemory(e.target.value)} />
+                        </div>
                     </div>
                 </div>
                 <div className="vm-search-wrap">
-                    <Search size={15} className="search-icon" />
+                    <Search size={14} className="search-icon" />
                     <input
                         type="text"
                         className="vm-search-input"
-                        placeholder="Filter by Name or Series"
+                        placeholder="Filter by name or series (e.g. D2s, B4ms)"
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                     />
+                    {searchQuery && (
+                        <button className="search-clear-btn" onClick={() => setSearchQuery('')}><X size={13} /></button>
+                    )}
                 </div>
                 <button className="columns-btn">
                     <SlidersHorizontal size={14} /> Columns <ChevronDown size={12} />
                 </button>
             </div>
 
-            {/* VM Table — full width, no outer margin */}
+            {/* "€"€ VM Table "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
             <div className="vm-table-container">
                 <table className="vm-table">
                     <thead>
                         <tr>
                             <th style={{ width: 36 }}></th>
-                            <th>VM Name</th>
-                            <th>vCPUs</th>
-                            <th>Memory (GiB)</th>
-                            <th>Linux Price</th>
-                            <th>Windows Price</th>
-                            <th>Alternative VMs</th>
-                            <th>Savings Options</th>
-                            <th>Best Price Region / Diff</th>
+                            <th className="sortable-th" onClick={() => handleSort('skuName')}>
+                                VM Name {sortConfig.key === 'skuName' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                            </th>
+                            <th className="sortable-th" style={{ width: 90 }} onClick={() => handleSort('vCpus')}>
+                                vCPUs {sortConfig.key === 'vCpus' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                            </th>
+                            <th className="sortable-th" style={{ width: 130 }} onClick={() => handleSort('memoryGib')}>
+                                Memory (GiB) {sortConfig.key === 'memoryGib' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                            </th>
+                            <th className="sortable-th" onClick={() => handleSort('linuxPrice')}>
+                                Linux / hr {sortConfig.key === 'linuxPrice' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                            </th>
+                            <th className="sortable-th" onClick={() => handleSort('windowsPrice')}>
+                                Windows / hr {sortConfig.key === 'windowsPrice' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                            </th>
+                            <th className="sortable-th" onClick={() => handleSort('bestRegion')}>
+                                Best Region {sortConfig.key === 'bestRegion' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                            </th>
+                            <th className="sortable-th" onClick={() => handleSort('diffPercent')}>
+                                Savings {sortConfig.key === 'diffPercent' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
-                        {vmRows.map(vm => {
-                            const spec = lookupSpec(vm.skuName);
+                        {vmRows.map((vm, idx) => {
+                            const staticSpec = lookupSpec(vm.skuName);
+                            const vCpus = vm.vCpus ?? staticSpec?.vCpus;
+                            const memGib = vm.memoryGib ?? staticSpec?.memory;
+                            const vCpuFromStatic = vm.vCpus == null && staticSpec?.vCpus != null;
+                            const memFromStatic = vm.memoryGib == null && staticSpec?.memory != null;
                             const isSelected = selectedSkus.includes(vm.skuName);
-                            const tooltipLines = getTooltipLines(vm.skuName, spec);
+                            const tooltipLines = getTooltipLines(vm.skuName, { vCpus });
                             const isHovered = hoveredSku === vm.skuName;
+                            const isEven = idx % 2 === 0;
 
                             return (
                                 <tr
                                     key={vm.skuName}
-                                    className={isSelected ? 'selected' : ''}
+                                    className={`vm-row ${isSelected ? 'selected' : ''} ${isEven ? 'even' : ''}`}
                                     onClick={() => toggleSelection(vm.skuName)}
                                 >
                                     <td>
-                                        <div className={`checkbox ${isSelected ? 'checked' : ''}`}>
+                                        <div className={`vm-checkbox ${isSelected ? 'checked' : ''}`}>
                                             {isSelected && <Check size={11} color="white" strokeWidth={3} />}
                                         </div>
                                     </td>
@@ -554,55 +593,72 @@ export default function VmComparisonPage() {
                                             onMouseLeave={() => setHoveredSku(null)}
                                         >
                                             <span className="sku-name">{vm.skuName}</span>
-                                            {(vm.canonicalName || spec?.type) && (
-                                                <span className="sku-type">{vm.canonicalName || spec.type}</span>
+                                            {(vm.canonicalName || staticSpec?.type) && (
+                                                <span className="sku-type-badge">{vm.canonicalName || staticSpec?.type}</span>
                                             )}
                                             {isHovered && tooltipLines.length > 0 && (
                                                 <VmTooltip lines={tooltipLines} />
                                             )}
                                         </div>
                                     </td>
-                                    <td>{vm.vCpus ?? spec?.vCpus ?? <span className="text-muted">—</span>}</td>
-                                    <td>{vm.memoryGib ?? spec?.memory ?? <span className="text-muted">—</span>}</td>
-                                    <td className="price-cell">
-                                        {vm.linuxPrice != null
-                                            ? <span className="price-val">{formatPrice(vm.linuxPrice, currency)}</span>
-                                            : <span className="price-na">—</span>}
-                                    </td>
-                                    <td className="price-cell">
-                                        {vm.windowsPrice != null
-                                            ? <span className="price-val">{formatPrice(vm.windowsPrice, currency)}</span>
-                                            : <span className="price-na">—</span>}
+                                    <td>
+                                        <span className={`spec-val ${!vCpus ? 'spec-missing' : ''}`}>
+                                            {vCpus != null ? (vCpuFromStatic ? `~${vCpus}` : vCpus) : 'â€”'}
+                                        </span>
                                     </td>
                                     <td>
-                                        <button className="link-btn" onClick={e => e.stopPropagation()}>find better</button>
+                                        <span className={`spec-val ${!memGib ? 'spec-missing' : ''}`}>
+                                            {memGib != null ? (memFromStatic ? `~${memGib}` : memGib) : 'â€”'}
+                                        </span>
                                     </td>
-                                    <td>
-                                        <button className="link-btn" onClick={e => e.stopPropagation()}>compare</button>
+                                    <td className="price-cell">
+                                        {vm.linuxPrice != null ? (
+                                            <span className={`price-badge ${vm.linuxPrice < 0.1 ? 'price-green' : vm.linuxPrice < 0.5 ? 'price-blue' : 'price-default'}`}>
+                                                {formatPrice(vm.linuxPrice, currency)}
+                                            </span>
+                                        ) : <span className="price-na">â€”</span>}
+                                    </td>
+                                    <td className="price-cell">
+                                        {vm.windowsPrice != null ? (
+                                            <span className="price-badge price-default">
+                                                {formatPrice(vm.windowsPrice, currency)}
+                                            </span>
+                                        ) : <span className="price-na">â€”</span>}
                                     </td>
                                     <td>
                                         <div className="best-region-cell">
-                                            <span className="best-region-name">{vm.bestRegion || '—'}</span>
-                                            {vm.diffPercent > 0 && (
-                                                <span className="diff-badge">/ -{vm.diffPercent}%</span>
-                                            )}
+                                            <span className="best-region-name">{vm.bestRegion || 'â€”'}</span>
                                         </div>
+                                    </td>
+                                    <td>
+                                        {vm.diffPercent > 0 ? (
+                                            <span className="savings-badge">-{vm.diffPercent}%</span>
+                                        ) : <span className="price-na">â€”</span>}
                                     </td>
                                 </tr>
                             );
                         })}
 
-                        {loading && (
-                            <tr>
-                                <td colSpan={9} style={{ textAlign: 'center', padding: 28 }}>
-                                    <div className="spinner" style={{ margin: '0 auto' }} />
-                                </td>
+                        {/* Skeleton loading rows */}
+                        {loading && Array.from({ length: 8 }).map((_, i) => (
+                            <tr key={`skel-${i}`} className="vm-row skeleton-row">
+                                <td><div className="skel-box" style={{ width: 20, height: 20, borderRadius: 4 }} /></td>
+                                <td><div className="skel-box" style={{ width: `${100 + (i % 3) * 40}px`, height: 14 }} /></td>
+                                <td><div className="skel-box" style={{ width: 30, height: 14 }} /></td>
+                                <td><div className="skel-box" style={{ width: 40, height: 14 }} /></td>
+                                <td><div className="skel-box" style={{ width: 70, height: 22, borderRadius: 12 }} /></td>
+                                <td><div className="skel-box" style={{ width: 70, height: 22, borderRadius: 12 }} /></td>
+                                <td><div className="skel-box" style={{ width: 80, height: 14 }} /></td>
+                                <td><div className="skel-box" style={{ width: 40, height: 18, borderRadius: 10 }} /></td>
                             </tr>
-                        )}
+                        ))}
+
                         {!loading && vmRows.length === 0 && (
                             <tr>
-                                <td colSpan={9} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                                    No VMs found
+                                <td colSpan={8} className="vm-empty-state">
+                                    <SlidersHorizontal size={32} strokeWidth={1} />
+                                    <p>No VMs found matching your filters</p>
+                                    <span>Try adjusting the vCPU, Memory, or search filters above</span>
                                 </td>
                             </tr>
                         )}
@@ -610,35 +666,38 @@ export default function VmComparisonPage() {
                 </table>
             </div>
 
-            {hasMore && !loading && (
-                <div style={{ textAlign: 'center', padding: '16px 40px' }}>
-                    <button className="btn-secondary" onClick={loadMore} style={{ padding: '8px 28px' }}>
-                        Load More
-                    </button>
+            {loadError && (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#ef4444' }}>
+                    <p>Failed to load VM data: {loadError}</p>
+                    <button className="btn-secondary" onClick={() => window.location.reload()}>Retry</button>
                 </div>
             )}
 
-            {/* Selection bar */}
+            {/* "€"€ Selection bar "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
             {selectedSkus.length > 0 && (
                 <div className="compare-bar">
                     <div className="compare-bar-info">
-                        <span className="compare-count">{selectedSkus.length} selected</span>
-                        <span className="compare-hint">{selectedSkus.join(', ')}</span>
+                        <div className="compare-count-pill">{selectedSkus.length} / 2</div>
+                        <div className="compare-selected-names">
+                            {selectedSkus.map(s => (
+                                <span key={s} className="compare-sku-chip">
+                                    {s}
+                                    <button onClick={e => { e.stopPropagation(); handleDeselect(s); }}><X size={11} /></button>
+                                </span>
+                            ))}
+                        </div>
                     </div>
                     <div className="compare-bar-actions">
-                        <button className="btn-secondary" onClick={handleClear} style={{ padding: '8px 18px' }}>
-                            Clear
-                        </button>
+                        <button className="compare-bar-clear-btn" onClick={handleClear}>Clear</button>
                         <button
-                            className="compare-btn"
+                            className="compare-bar-btn pricing"
                             disabled={selectedSkus.length < 2}
                             onClick={handleComparePricing}
-                            style={{ marginRight: '10px', background: 'var(--success)', borderColor: 'var(--success)' }}
                         >
                             Compare Pricing
                         </button>
                         <button
-                            className="compare-btn"
+                            className="compare-bar-btn specs"
                             disabled={selectedSkus.length < 2}
                             onClick={() => setIsComparing(true)}
                         >
@@ -648,20 +707,15 @@ export default function VmComparisonPage() {
                 </div>
             )}
 
-            {/* Pricing Compare Modal Overlay */}
+            {/* "€"€ Pricing Compare Modal "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
             {showPricingCard && (
-                <div className="modal-overlay" onClick={() => setShowPricingCard(false)} style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{
-                        background: 'var(--bg-card)', padding: '24px 32px', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: '800px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                            <h2 style={{ fontSize: '1.4rem', color: 'var(--text-primary)' }}>Pricing Comparison ({currency})</h2>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div className="modal-overlay" onClick={() => setShowPricingCard(false)}>
+                    <div className="modal-content" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2>Pricing Comparison <span className="modal-currency-badge">{currency}</span></h2>
+                            <div className="modal-header-controls">
                                 <select
-                                    className="select-control"
-                                    style={{ padding: '6px 30px 6px 12px', fontSize: '0.85rem' }}
+                                    className="ctrl-select"
                                     value={pricingPeriod}
                                     onChange={(e) => setPricingPeriod(e.target.value)}
                                 >
@@ -672,60 +726,61 @@ export default function VmComparisonPage() {
                                 {pricingPeriod === 'custom' && (
                                     <input
                                         type="number"
-                                        className="input-control"
-                                        style={{ width: '80px', padding: '6px 12px', fontSize: '0.85rem' }}
+                                        className="filter-range-input"
+                                        style={{ width: '80px' }}
                                         value={customHours === 0 ? '' : customHours}
                                         onChange={(e) => setCustomHours(Number(e.target.value) || 0)}
                                         min="1"
                                     />
                                 )}
-                                <button className="link-btn" style={{ marginLeft: '8px' }} onClick={() => setShowPricingCard(false)}><X size={20} color="var(--text-muted)" /></button>
+                                <button className="modal-close-btn" onClick={() => setShowPricingCard(false)}><X size={18} /></button>
                             </div>
                         </div>
                         {pricingLoading ? (
-                            <div style={{ textAlign: 'center', padding: '40px 0' }}><div className="spinner" style={{ margin: '0 auto' }} /></div>
+                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
+                                <div className="spinner" style={{ margin: '0 auto' }} />
+                            </div>
                         ) : pricingData ? (
-                            <table className="vm-table" style={{ margin: 0, border: '1px solid var(--border-primary)', borderBottom: 'none' }}>
+                            <table className="vm-table" style={{ margin: 0 }}>
                                 <thead>
                                     <tr>
-                                        <th style={{ width: '150px' }}>Region</th>
+                                        <th style={{ width: '160px' }}>Region</th>
                                         {pricingData.skus.map(sku => <th key={sku}>{sku}</th>)}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {pricingData.items.map(row => (
                                         <tr key={row.region}>
-                                            <td style={{ fontWeight: 600, textTransform: 'capitalize' }}>
+                                            <td className="region-label-cell">
                                                 {row.region.replace(/([A-Z])/g, ' $1').trim()}
                                             </td>
                                             {pricingData.skus.map(sku => {
                                                 const price = row[sku];
-                                                const multiplier = pricingPeriod === 'monthly' ? 730 : pricingPeriod === 'hourly' ? 1 : customHours;
+                                                const mult = pricingPeriod === 'monthly' ? 730 : pricingPeriod === 'hourly' ? 1 : customHours;
                                                 const suffix = pricingPeriod === 'monthly' ? '/mo' : pricingPeriod === 'hourly' ? '/hr' : `/${customHours}h`;
-
                                                 return (
                                                     <td key={sku} className="price-cell">
                                                         {price ? (
                                                             <div>
-                                                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                                                                    {formatPrice(price.linuxPrice * multiplier, pricingData.currency)} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>{suffix} (Linux)</span>
+                                                                <div className="modal-price-row">
+                                                                    <span className="price-badge price-green">{formatPrice(price.linuxPrice * mult, pricingData.currency)}</span>
+                                                                    <span className="modal-price-label">{suffix} Linux</span>
                                                                 </div>
-                                                                <div style={{ marginTop: 6, fontWeight: 600, color: 'var(--text-primary)' }}>
-                                                                    {formatPrice(price.windowsPrice * multiplier, pricingData.currency)} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>{suffix} (Win)</span>
+                                                                <div className="modal-price-row" style={{ marginTop: 6 }}>
+                                                                    <span className="price-badge price-default">{formatPrice(price.windowsPrice * mult, pricingData.currency)}</span>
+                                                                    <span className="modal-price-label">{suffix} Win</span>
                                                                 </div>
                                                             </div>
-                                                        ) : <span className="text-muted">—</span>}
+                                                        ) : <span className="price-na">â€”</span>}
                                                     </td>
                                                 );
                                             })}
                                         </tr>
                                     ))}
                                     {pricingData.items.length === 0 && (
-                                        <tr>
-                                            <td colSpan={pricingData.skus.length + 1} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
-                                                No pricing data available for selected regions.
-                                            </td>
-                                        </tr>
+                                        <tr><td colSpan={pricingData.skus.length + 1} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
+                                            No pricing data available for selected regions.
+                                        </td></tr>
                                     )}
                                 </tbody>
                             </table>

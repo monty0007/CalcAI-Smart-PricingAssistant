@@ -1,34 +1,43 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useEstimate } from '../context/EstimateContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { formatPrice } from '../services/azurePricingApi';
-import { Trash2, Download, AlertCircle } from 'lucide-react';
+import {
+    Trash2, Download, FolderOpen, Plus, Pencil, Check, X,
+    FileSpreadsheet, Clock, Tag, ChevronRight, Save, AlertCircle
+} from 'lucide-react';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function MyEstimates() {
     const { user, token } = useAuth();
     const { replaceItems, setCurrency } = useEstimate();
     const navigate = useNavigate();
+
     const [estimates, setEstimates] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [renamingId, setRenamingId] = useState(null);
+    const [renameValue, setRenameValue] = useState('');
+    const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+    const [successMsg, setSuccessMsg] = useState('');
 
     useEffect(() => {
-        if (!user) {
-            navigate('/login');
-            return;
-        }
+        if (!user) { navigate('/login'); return; }
         fetchEstimates();
     }, [user]);
 
     async function fetchEstimates() {
         try {
-            const res = await fetch('http://localhost:3001/api/estimates', {
+            setLoading(true);
+            const res = await fetch(`${API_URL}/estimates`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (!res.ok) throw new Error('Failed to fetch estimates');
-            const data = await res.json();
-            setEstimates(data);
+            setEstimates(await res.json());
         } catch (err) {
             setError(err.message);
         } finally {
@@ -36,183 +45,219 @@ export default function MyEstimates() {
         }
     }
 
-    async function handleDelete(id) {
-        if (!confirm('Are you sure you want to delete this estimate?')) return;
-        try {
-            await fetch(`http://localhost:3001/api/estimates/${id}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setEstimates(estimates.filter(e => e.id !== id));
-        } catch (err) {
-            alert('Failed to delete');
-        }
+    function showSuccess(msg) {
+        setSuccessMsg(msg);
+        setTimeout(() => setSuccessMsg(''), 2800);
     }
 
     async function handleLoad(id) {
         try {
-            const res = await fetch(`http://localhost:3001/api/estimates/${id}`, {
+            const res = await fetch(`${API_URL}/estimates/${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             const data = await res.json();
-
-            // Restore estimate
-            // Note: We might need to expose a 'replaceItems' method in EstimateContext
-            // For now, let's assume we can loop and add, but clearing is tricky if not exposed.
-            // Let's assume user wants to VIEW it.
-            // A better way is to update EstimateContext to allow 'loadEstimate(data)'
             if (replaceItems) {
                 replaceItems(data.items);
                 if (data.currency) setCurrency(data.currency);
                 navigate('/dashboard');
-            } else {
-                alert("Context update required to load estimates.");
             }
-
-        } catch (err) {
-            alert('Failed to load estimate');
+        } catch {
+            setError('Failed to load estimate');
         }
     }
 
-    if (loading) return <div className="p-8 text-center">Loading...</div>;
+    async function handleDelete(id) {
+        try {
+            await fetch(`${API_URL}/estimates/${id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setEstimates(prev => prev.filter(e => e.id !== id));
+            setDeleteConfirmId(null);
+            showSuccess('Estimate deleted');
+        } catch {
+            setError('Failed to delete estimate');
+        }
+    }
+
+    async function handleRename(id) {
+        if (!renameValue.trim()) return;
+        try {
+            const res = await fetch(`${API_URL}/estimates/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ name: renameValue.trim() })
+            });
+            const updated = await res.json();
+            setEstimates(prev => prev.map(e => e.id === id ? { ...e, name: updated.name, updated_at: updated.updated_at } : e));
+            setRenamingId(null);
+            setRenameValue('');
+            showSuccess('Estimate renamed');
+        } catch {
+            setError('Failed to rename estimate');
+        }
+    }
+
+    async function handleExport(estimate) {
+        // Fetch full items
+        const res = await fetch(`${API_URL}/estimates/${estimate.id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('Estimate');
+        ws.columns = [
+            { header: 'Service', key: 'service', width: 28 },
+            { header: 'SKU', key: 'sku', width: 30 },
+            { header: 'Region', key: 'region', width: 20 },
+            { header: 'Qty', key: 'qty', width: 8 },
+            { header: 'Unit Price', key: 'price', width: 14 },
+            { header: 'Monthly Cost', key: 'monthly', width: 14 },
+        ];
+        const hdr = ws.getRow(1);
+        hdr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        hdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0078D4' } };
+
+        (data.items || []).forEach(item => {
+            const monthly = (item.retailPrice || 0) * (item.quantity || 1) * (item.hoursPerMonth || 730);
+            ws.addRow({
+                service: item.serviceName || '',
+                sku: item.skuName || item.meterName || '',
+                region: item.armRegionName || '',
+                qty: item.quantity || 1,
+                price: item.retailPrice || 0,
+                monthly: +monthly.toFixed(2),
+            });
+        });
+
+        const buf = await wb.xlsx.writeBuffer();
+        saveAs(new Blob([buf]), `${estimate.name.replace(/[^a-z0-9]/gi, '_')}.xlsx`);
+    }
+
+    if (loading) {
+        return (
+            <div className="my-estimates-page">
+                <div className="my-est-loading">
+                    <div className="my-est-spinner" />
+                    <p>Loading your estimates…</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="page-container">
-            <div className="page-header">
-                <h2>My Saved Estimates</h2>
-                <p className="text-muted">Manage your saved Bills of Quantities.</p>
+        <div className="my-estimates-page">
+            {/* Header */}
+            <div className="my-est-header">
+                <div>
+                    <h1 className="my-est-title">
+                        <Save size={22} /> My Saved Estimates
+                    </h1>
+                    <p className="my-est-sub">
+                        All your saved Bills of Quantity · {estimates.length} estimate{estimates.length !== 1 ? 's' : ''}
+                    </p>
+                </div>
+                <button className="my-est-new-btn" onClick={() => navigate('/dashboard')}>
+                    <Plus size={15} /> New Estimate
+                </button>
             </div>
 
-            {error && <div className="error-banner">{error}</div>}
+            {/* Success */}
+            {successMsg && (
+                <div className="my-est-success">
+                    <Check size={14} /> {successMsg}
+                </div>
+            )}
+            {error && (
+                <div className="my-est-error">
+                    <AlertCircle size={14} /> {error}
+                    <button onClick={() => setError(null)}><X size={12} /></button>
+                </div>
+            )}
 
+            {/* Empty state */}
             {estimates.length === 0 ? (
-                <div className="empty-state">
-                    <AlertCircle size={48} className="text-muted" />
-                    <p>No saved estimates found.</p>
-                    <button onClick={() => navigate('/dashboard')} className="btn-primary" style={{ marginTop: 16 }}>
-                        Create New Estimate
+                <div className="my-est-empty">
+                    <div className="my-est-empty-icon">📦</div>
+                    <h3>No saved estimates yet</h3>
+                    <p>Build an estimate in the Calculator, then save it with a name to track it here.</p>
+                    <button className="btn-primary" onClick={() => navigate('/dashboard')}>
+                        <Plus size={15} /> Start Estimating
                     </button>
                 </div>
             ) : (
-                <div className="estimates-grid">
-                    {estimates.map(estimate => (
-                        <div key={estimate.id} className="estimate-card">
-                            <div className="card-header">
-                                <h3>{estimate.name}</h3>
-                                <span className="date">
-                                    {new Date(estimate.updated_at).toLocaleDateString()}
-                                </span>
-                            </div>
-                            <div className="card-body">
-                                <div className="cost-row">
-                                    <span>Total Cost:</span>
-                                    <span className="cost">
-                                        {formatPrice(estimate.total_cost, estimate.currency || 'USD')}
-                                    </span>
+                <div className="my-est-grid">
+                    {estimates.map(est => (
+                        <div key={est.id} className="my-est-card">
+                            {/* Card header */}
+                            <div className="my-est-card-top">
+                                {renamingId === est.id ? (
+                                    <div className="my-est-rename-row">
+                                        <input
+                                            className="my-est-rename-input"
+                                            value={renameValue}
+                                            onChange={e => setRenameValue(e.target.value)}
+                                            onKeyDown={e => { if (e.key === 'Enter') handleRename(est.id); if (e.key === 'Escape') setRenamingId(null); }}
+                                            autoFocus
+                                        />
+                                        <button className="my-est-icon-btn confirm" onClick={() => handleRename(est.id)}>
+                                            <Check size={14} />
+                                        </button>
+                                        <button className="my-est-icon-btn cancel" onClick={() => setRenamingId(null)}>
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="my-est-name-row">
+                                        <h3 className="my-est-name">{est.name}</h3>
+                                        <button
+                                            className="my-est-icon-btn"
+                                            title="Rename"
+                                            onClick={() => { setRenamingId(est.id); setRenameValue(est.name); }}
+                                        >
+                                            <Pencil size={13} />
+                                        </button>
+                                    </div>
+                                )}
+
+                                <div className="my-est-meta">
+                                    <span><Clock size={11} /> {new Date(est.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                                    <span><Tag size={11} /> {est.currency}</span>
+                                    <span><FolderOpen size={11} /> {est.item_count} item{est.item_count !== 1 ? 's' : ''}</span>
                                 </div>
-                                <div className="item-count">
-                                    {estimate.items.length} items
-                                </div>
                             </div>
-                            <div className="card-actions">
-                                <button onClick={() => handleLoad(estimate.id)} className="btn-secondary btn-icon">
-                                    <Download size={16} /> Load
+
+                            {/* Cost */}
+                            <div className="my-est-cost-row">
+                                <span className="my-est-cost-label">Total Monthly</span>
+                                <span className="my-est-cost">{formatPrice(est.total_cost, est.currency)}</span>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="my-est-card-actions">
+                                <button className="my-est-action-btn load" onClick={() => handleLoad(est.id)}>
+                                    <FolderOpen size={13} /> Load
                                 </button>
-                                <button onClick={() => handleDelete(estimate.id)} className="btn-danger btn-icon">
-                                    <Trash2 size={16} /> Delete
+                                <button className="my-est-action-btn export" onClick={() => handleExport(est)}>
+                                    <FileSpreadsheet size={13} /> Export
                                 </button>
+                                {deleteConfirmId === est.id ? (
+                                    <div className="my-est-delete-confirm">
+                                        <span>Delete?</span>
+                                        <button className="my-est-action-btn delete-yes" onClick={() => handleDelete(est.id)}>Yes</button>
+                                        <button className="my-est-action-btn cancel" onClick={() => setDeleteConfirmId(null)}>No</button>
+                                    </div>
+                                ) : (
+                                    <button className="my-est-action-btn delete" onClick={() => setDeleteConfirmId(est.id)}>
+                                        <Trash2 size={13} /> Delete
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
                 </div>
             )}
-
-            <style jsx>{`
-                .page-container {
-                    padding: 2rem;
-                    max-width: 1200px;
-                    margin: 0 auto;
-                }
-                .page-header {
-                    margin-bottom: 2rem;
-                    border-bottom: 1px solid var(--border);
-                    padding-bottom: 1rem;
-                }
-                .empty-state {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 4rem;
-                    background: var(--bg-secondary);
-                    border-radius: var(--radius-lg);
-                    border: 1px dashed var(--border);
-                }
-                .estimates-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                    gap: 1.5rem;
-                }
-                .estimate-card {
-                    background: var(--bg-primary);
-                    border: 1px solid var(--border);
-                    border-radius: var(--radius-lg);
-                    padding: 1.5rem;
-                    transition: transform 0.2s, box-shadow 0.2s;
-                }
-                .estimate-card:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                }
-                .card-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    margin-bottom: 1rem;
-                }
-                .card-header h3 {
-                    margin: 0;
-                    font-size: 1.1rem;
-                }
-                .date {
-                    font-size: 0.8rem;
-                    color: var(--text-muted);
-                }
-                .cost-row {
-                    display: flex;
-                    justify-content: space-between;
-                    font-weight: 500;
-                    margin-bottom: 0.5rem;
-                }
-                .cost {
-                    color: var(--primary);
-                }
-                .item-count {
-                    font-size: 0.9rem;
-                    color: var(--text-secondary);
-                    margin-bottom: 1.5rem;
-                }
-                .card-actions {
-                    display: flex;
-                    gap: 0.5rem;
-                }
-                .btn-icon {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    flex: 1;
-                    justify-content: center;
-                    font-size: 0.9rem;
-                }
-                .btn-danger {
-                    background: rgba(220, 38, 38, 0.1);
-                    color: #ef4444;
-                    border: 1px solid transparent;
-                }
-                .btn-danger:hover {
-                    background: rgba(220, 38, 38, 0.2);
-                }
-            `}</style>
         </div>
     );
 }
