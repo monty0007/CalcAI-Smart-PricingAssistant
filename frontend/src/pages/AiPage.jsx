@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Download, Plus, RefreshCw, FileSpreadsheet, ChevronRight } from 'lucide-react';
-import { fetchServicePricing, formatPrice, searchPrices } from '../services/azurePricingApi';
+import { Send, Bot, User, Sparkles, Download, Plus, RefreshCw, FileSpreadsheet, ChevronRight, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { fetchServicePricing, formatPrice, searchPrices, fetchVmList } from '../services/azurePricingApi';
 import { useEstimate } from '../context/EstimateContext';
 import { POPULAR_SERVICES } from '../data/serviceCatalog';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import 'github-markdown-css/github-markdown.css';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
@@ -59,15 +63,19 @@ async function callAI(messages, pricingContext) {
 
     const systemMsg = {
         role: 'system',
-        content: `You are an Azure Pricing Expert. Help users understand Azure service pricing clearly and in detail.
-When pricing data is provided, give a structured breakdown with:
-- What the service/SKU is and when to use it
-- The cost implications and what drives the price
-- Comparison between options if multiple are shown
-- Practical recommendations based on cost/performance
+        content: `You are a strict Azure Pricing Assistant. You must ONLY answer questions related to Azure services, cloud computing, and pricing. If the user asks about anything else, politely decline and say you can only help with Azure pricing.
 
-Keep responses concise but informative. Use markdown formatting, bullet points, and bold for prices.
-${pricingContext ? `\n\nReal-time pricing data from the Azure API:\n${pricingContext}` : ''}`
+CRITICAL RULES FOR PRICING:
+1. You MUST ONLY use the real-time pricing data provided below to answer pricing queries.
+2. DO NOT use your pre-trained knowledge or internet data to guess prices.
+3. If the provided pricing data does not contain the answer to a pricing question, you must say: "I don't have the exact pricing for that in my current database context. Please try searching for a more specific service."
+
+When pricing data is provided, you MUST output the data as a clean Markdown table.
+The table must include these exact columns:
+| Service / SKU | Product | Region | Price | Unit |
+
+Do not write long paragraphs or conversational filler. Simply provide the table and a one-sentence summary or recommendation if necessary.
+${pricingContext ? `\n\n=== REAL-TIME PRICING DATA FROM DATABASE ===\n${pricingContext}\n==============================================` : ''}`
     };
 
     try {
@@ -90,19 +98,6 @@ ${pricingContext ? `\n\nReal-time pricing data from the Azure API:\n${pricingCon
     } catch {
         return null;
     }
-}
-
-// ── Simple markdown renderer ─────────────────────────────────────────
-function renderMarkdown(text) {
-    if (!text) return '';
-    return text
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/`(.+?)`/g, '<code>$1</code>')
-        .replace(/^#{1,3}\s(.+)$/gm, '<strong class="md-heading">$1</strong>')
-        .replace(/^[-•]\s(.+)$/gm, '<div class="md-bullet">• $1</div>')
-        .replace(/\n\n/g, '<br/><br/>')
-        .replace(/\n/g, '<br/>');
 }
 
 // ── Excel export ─────────────────────────────────────────────────────
@@ -172,6 +167,7 @@ function PricingCard({ item, currency, onAddToEstimate }) {
 // ── Main page ─────────────────────────────────────────────────────────
 export default function AiPage() {
     const { currency, addItem } = useEstimate();
+    const navigate = useNavigate();
     const hasAI = Boolean(AI_ENDPOINT && AI_API_KEY);
 
     const [messages, setMessages] = useState([{
@@ -240,23 +236,46 @@ export default function AiPage() {
                 }
             } else {
                 const keywords = query.split(' ').filter(w => w.length > 3).join(' ');
-                if (keywords) {
-                    const data = await searchPrices(keywords, parsed.region, currency).catch(() => ({ items: [] }));
-                    if (data.items.length > 0) {
-                        const sorted = [...data.items].sort((a, b) => a.retailPrice - b.retailPrice);
-                        pricingData = sorted.slice(0, 10).map(item => ({
-                            name: item.skuName || item.meterName || 'Service SKU',
-                            product: item.productName || 'Azure Service',
-                            price: item.retailPrice,
-                            unit: item.unitOfMeasure || 'hour',
-                            region: item.location || parsed.region,
-                            currency: item.currencyCode || currency,
-                            original: item,
+                const lowerQuery = query.toLowerCase();
+                let data = { items: [] };
+
+                // Fast path for specific VM queries
+                const isVmQuery = lowerQuery.includes('standard_') || lowerQuery.includes('basic_');
+                if (isVmQuery) {
+                    const vmTerm = query.split(' ').find(w => w.toLowerCase().startsWith('standard_') || w.toLowerCase().startsWith('basic_')) || keywords;
+                    const vmData = await fetchVmList({ search: vmTerm, region: parsed.region, currency, limit: 10 }).catch(() => ({ items: [] }));
+                    if (vmData.items?.length > 0) {
+                        data.items = vmData.items.map(vm => ({
+                            skuName: vm.skuName,
+                            productName: 'Virtual Machines',
+                            retailPrice: vm.linuxPrice > 0 ? vm.linuxPrice : (vm.windowsPrice || 0),
+                            unitOfMeasure: '1 Hour',
+                            location: vm.bestRegion || parsed.region,
+                            currencyCode: currency,
+                            original: vm
                         }));
-                        pricingContext = pricingData.slice(0, 5).map(p =>
-                            `${p.name}: ${formatPrice(p.price, currency)}/${p.unit} (${p.region})`
-                        ).join('\n');
                     }
+                }
+
+                // Fallback to full-text search
+                if (data.items.length === 0 && keywords) {
+                    data = await searchPrices(keywords, parsed.region, currency).catch(() => ({ items: [] }));
+                }
+
+                if (data.items.length > 0) {
+                    const sorted = [...data.items].sort((a, b) => a.retailPrice - b.retailPrice);
+                    pricingData = sorted.slice(0, 10).map(item => ({
+                        name: item.skuName || item.meterName || 'Service SKU',
+                        product: item.productName || 'Azure Service',
+                        price: item.retailPrice,
+                        unit: item.unitOfMeasure || 'hour',
+                        region: item.location || parsed.region,
+                        currency: item.currencyCode || currency,
+                        original: item.original || item,
+                    }));
+                    pricingContext = pricingData.slice(0, 5).map(p =>
+                        `${p.name}: ${formatPrice(p.price, currency)}/${p.unit} (${p.region})`
+                    ).join('\n');
                 }
             }
 
@@ -315,125 +334,149 @@ export default function AiPage() {
 
     return (
         <div className="ai-page">
-            {/* ── Header ──────────────────────────────────────── */}
-            <div className="ai-header">
-                <div className="ai-header__icon">
-                    <Sparkles size={20} />
-                </div>
-                <div>
-                    <h1 className="ai-header__title">Azure Pricing Assistant</h1>
-                    <p className="ai-header__sub">Ask about any Azure service — get real pricing data instantly</p>
-                </div>
-                <div className="ai-header__status">
-                    <span className={`ai-status-dot ${hasAI ? 'active' : ''}`} />
-                    <span>{hasAI ? 'AI Enhanced' : 'Data Mode'}</span>
-                </div>
-            </div>
-
-            {/* ── Chat area ───────────────────────────────────── */}
-            <div className="ai-chat-area">
-                {/* Suggested prompts */}
-                {showSuggestions && (
-                    <div className="ai-suggestions">
-                        <p className="ai-suggestions__label">Try asking:</p>
-                        <div className="ai-suggestions__grid">
-                            {SUGGESTED_PROMPTS.map((p, i) => (
-                                <button
-                                    key={i}
-                                    className="ai-suggestion-pill"
-                                    onClick={() => handleSend(p.text)}
-                                >
-                                    <span>{p.icon}</span> {p.text}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Messages */}
-                {messages.map(msg => (
-                    <div
-                        key={msg.id}
-                        className={`ai-msg ai-msg--${msg.role}`}
-                    >
-                        <div className={`ai-avatar ai-avatar--${msg.role}`}>
-                            {msg.role === 'bot' ? <Bot size={15} /> : <User size={15} />}
-                        </div>
-                        <div className={`ai-bubble ai-bubble--${msg.role}`}>
-                            {/* Text content */}
-                            <div
-                                className="ai-bubble__text"
-                                dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-                            />
-
-                            {/* Pricing cards */}
-                            {msg.pricingData && msg.pricingData.length > 0 && (
-                                <div className="ai-pricing-section">
-                                    <div className="ai-pricing-grid">
-                                        {msg.pricingData.map((item, i) => (
-                                            <PricingCard
-                                                key={i}
-                                                item={item}
-                                                currency={currency}
-                                                onAddToEstimate={handleAddToEstimate}
-                                            />
-                                        ))}
-                                    </div>
-                                    <div className="ai-pricing-actions">
-                                        <button
-                                            className="ai-excel-btn"
-                                            onClick={() => exportToExcel(msg.pricingData, currency)}
-                                        >
-                                            <FileSpreadsheet size={14} /> Convert to Excel
-                                        </button>
-                                        <button
-                                            className="ai-followup-btn"
-                                            onClick={() => {
-                                                setInput(`Tell me more about the cheapest option from the previous results`);
-                                                inputRef.current?.focus();
-                                            }}
-                                        >
-                                            <ChevronRight size={13} /> Ask more details
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                ))}
-
-                {loading && <TypingIndicator />}
-                <div ref={messagesEndRef} />
-            </div>
-
-            {/* ── Input box ───────────────────────────────────── */}
-            <div className="ai-input-area">
-                <div className="ai-input-wrap">
-                    <textarea
-                        ref={inputRef}
-                        className="ai-input"
-                        style={{ resize: 'none', overflowY: 'auto', minHeight: '44px' }}
-                        rows={1}
-                        placeholder="Ask about Azure pricing… (e.g. cheapest VM in India)"
-                        value={input}
-                        onChange={e => {
-                            setInput(e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
-                        }}
-                        onKeyDown={handleKeyDown}
-                    />
-                    <button
-                        className={`ai-send-btn ${loading || !input.trim() ? 'disabled' : ''}`}
-                        onClick={() => handleSend()}
-                        disabled={loading || !input.trim()}
-                    >
-                        {loading ? <RefreshCw size={16} className="spin" /> : <Send size={16} />}
+            {/* ── Left Sidebar (History) ───────────────────────── */}
+            <div className="ai-sidebar">
+                <div className="ai-sidebar-header">
+                    <button className="ai-back-btn" onClick={() => navigate(-1)} title="Back to Dashboard">
+                        <ArrowLeft size={18} />
                     </button>
+                    <h2>Chat History</h2>
                 </div>
-                <p className="ai-input-hint">
-                    Prices are fetched live from Microsoft Azure · Press <kbd>Enter</kbd> to send
-                </p>
+                <div className="ai-sidebar-content">
+                    <div className="ai-history-label">Today</div>
+                    <button className="ai-history-btn">Azure VM Comparison</button>
+                    <button className="ai-history-btn">Cheapest Database Options</button>
+                    <div className="ai-history-label" style={{ marginTop: '20px' }}>Previous 7 Days</div>
+                    <button className="ai-history-btn">Blob Storage vs Data Lake</button>
+                    <button className="ai-history-btn">AKS Node Sizing</button>
+                </div>
+            </div>
+
+            {/* ── Main Chat Area ──────────────────────────────── */}
+            <div className="ai-main">
+                {/* ── Header ──────────────────────────────────────── */}
+                <div className="ai-header-wrapper">
+                    <div className="ai-header">
+                        <div className="ai-header__icon">
+                            <Sparkles size={20} />
+                        </div>
+                        <div>
+                            <h1 className="ai-header__title">Azure Pricing Assistant</h1>
+                            <p className="ai-header__sub">Ask about any Azure service — get real pricing data instantly</p>
+                        </div>
+                        <div className="ai-header__status">
+                            <span className={`ai-status-dot ${hasAI ? 'active' : ''}`} />
+                            <span>{hasAI ? 'AI Enhanced' : 'Data Mode'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── Chat area ───────────────────────────────────── */}
+                <div className="ai-chat-area">
+                    {/* Suggested prompts */}
+                    {showSuggestions && (
+                        <div className="ai-suggestions">
+                            <p className="ai-suggestions__label">Try asking:</p>
+                            <div className="ai-suggestions__grid">
+                                {SUGGESTED_PROMPTS.map((p, i) => (
+                                    <button
+                                        key={i}
+                                        className="ai-suggestion-pill"
+                                        onClick={() => handleSend(p.text)}
+                                    >
+                                        <span>{p.icon}</span> {p.text}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Messages */}
+                    {messages.map(msg => (
+                        <div
+                            key={msg.id}
+                            className={`ai-msg ai-msg--${msg.role}`}
+                        >
+                            <div className={`ai-avatar ai-avatar--${msg.role}`}>
+                                {msg.role === 'bot' ? <Bot size={15} /> : <User size={15} />}
+                            </div>
+                            <div className={`ai-bubble ai-bubble--${msg.role}`}>
+                                {/* Text content */}
+                                <div className="ai-bubble__text markdown-body">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {msg.content}
+                                    </ReactMarkdown>
+                                </div>
+
+                                {/* Pricing cards */}
+                                {msg.pricingData && msg.pricingData.length > 0 && (
+                                    <div className="ai-pricing-section">
+                                        <div className="ai-pricing-grid">
+                                            {msg.pricingData.map((item, i) => (
+                                                <PricingCard
+                                                    key={i}
+                                                    item={item}
+                                                    currency={currency}
+                                                    onAddToEstimate={handleAddToEstimate}
+                                                />
+                                            ))}
+                                        </div>
+                                        <div className="ai-pricing-actions">
+                                            <button
+                                                className="ai-excel-btn"
+                                                onClick={() => exportToExcel(msg.pricingData, currency)}
+                                            >
+                                                <FileSpreadsheet size={14} /> Convert to Excel
+                                            </button>
+                                            <button
+                                                className="ai-followup-btn"
+                                                onClick={() => {
+                                                    setInput(`Tell me more about the cheapest option from the previous results`);
+                                                    inputRef.current?.focus();
+                                                }}
+                                            >
+                                                <ChevronRight size={13} /> Ask more details
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+
+                    {loading && <TypingIndicator />}
+                    <div ref={messagesEndRef} />
+                </div>
+
+                {/* ── Input box ───────────────────────────────────── */}
+                <div className="ai-input-area">
+                    <div className="ai-input-wrap">
+                        <textarea
+                            ref={inputRef}
+                            className="ai-input"
+                            style={{ resize: 'none', overflowY: 'auto', minHeight: '44px' }}
+                            rows={1}
+                            placeholder="Ask about Azure pricing… (e.g. cheapest VM in India)"
+                            value={input}
+                            onChange={e => {
+                                setInput(e.target.value);
+                                e.target.style.height = 'auto';
+                                e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                            }}
+                            onKeyDown={handleKeyDown}
+                        />
+                        <button
+                            className={`ai-send-btn ${loading || !input.trim() ? 'disabled' : ''}`}
+                            onClick={() => handleSend()}
+                            disabled={loading || !input.trim()}
+                        >
+                            {loading ? <RefreshCw size={16} className="spin" /> : <Send size={16} />}
+                        </button>
+                    </div>
+                    <p className="ai-input-hint">
+                        Prices are fetched live from Microsoft Azure · Press <kbd>Enter</kbd> to send
+                    </p>
+                </div>
             </div>
         </div>
     );
