@@ -5,7 +5,7 @@ import { VM_SPECS } from '../data/vmSpecs';
 import { fetchVmList, fetchVmComparison, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES } from '../services/azurePricingApi';
 import { AZURE_REGIONS } from '../data/serviceCatalog';
 
-// "€"€ Helpers "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ── Helpers ──────────────────────────────────────────────────────
 
 // Build a case-insensitive lookup map from VM_SPECS keys
 const VM_SPECS_MAP = {};
@@ -26,16 +26,16 @@ function lookupSpec(skuName) {
 }
 
 const SERIES_MAP = {
-    A: 'A â€” Entry-level VMs for dev/test',
-    B: 'B â€” Burstable economical VMs',
-    D: 'D â€” General purpose with balanced performance',
-    E: 'E â€” Memory optimized with high memory-to-CPU',
-    F: 'F â€” Compute optimized with high CPU-to-memory',
-    G: 'G â€” Memory and storage optimized',
-    H: 'H â€” High performance computing',
-    L: 'L â€” Storage optimized with high disk throughput',
-    M: 'M â€” Memory optimized with ultra high core count',
-    N: 'N â€” GPU enabled VMs',
+    A: 'A — Entry-level VMs for dev/test',
+    B: 'B — Burstable economical VMs',
+    D: 'D — General purpose with balanced performance',
+    E: 'E — Memory optimized with high memory-to-CPU',
+    F: 'F — Compute optimized with high CPU-to-memory',
+    G: 'G — Memory and storage optimized',
+    H: 'H — High performance computing',
+    L: 'L — Storage optimized with high disk throughput',
+    M: 'M — Memory optimized with ultra high core count',
+    N: 'N — GPU enabled VMs',
 };
 
 function getTooltipLines(skuName, spec) {
@@ -51,17 +51,17 @@ function getTooltipLines(skuName, spec) {
         if (letter && SERIES_MAP[letter]) lines.push(SERIES_MAP[letter]);
         // Extract vCPU number from sku part
         const vcpuMatch = parts[0].match(/([A-Za-z]+)(\d+)/);
-        if (vcpuMatch) lines.push(`${vcpuMatch[2]} â€” The number of vCPUs`);
+        if (vcpuMatch) lines.push(`${vcpuMatch[2]} — The number of vCPUs`);
     }
     const vPart = parts.find(p => /^v\d+$/i.test(p));
-    if (vPart) lines.push(`${vPart} â€” version`);
+    if (vPart) lines.push(`${vPart} — version`);
     if (spec?.vCpus && !lines.some(l => l.includes('vCPUs'))) {
-        lines.push(`${spec.vCpus} â€” The number of vCPUs`);
+        lines.push(`${spec.vCpus} — The number of vCPUs`);
     }
     return lines;
 }
 
-// "€"€ Tooltip component "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ── Tooltip component ────────────────────────────────────────────"─
 function VmTooltip({ lines }) {
     if (!lines || lines.length === 0) return null;
     return (
@@ -81,13 +81,13 @@ function BoolCell({ value }) {
     );
 }
 
-// "€"€ Compare View "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ── Compare View ──────────────────────────────────────────────────
 function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, setCurrency }) {
     const [os, setOs] = useState('linux');
     const [compareData, setCompareData] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    // Build a map from skuName â†’ API row data (has vCpus, memoryGib, etc. from DB)
+    // Build a map from skuName → API row data (has vCpus, memoryGib, etc. from DB)
     const apiSpecMap = {};
     vmRows.forEach(vm => { apiSpecMap[vm.skuName] = vm; });
 
@@ -180,36 +180,36 @@ function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, 
                                 </td>
                             ))}
                         </tr>
-                        {specRow('vCPUs', sku => getSpec(sku).vCpus ?? 'â€”')}
+                        {specRow('vCPUs', sku => getSpec(sku).vCpus ?? '—')}
                         {specRow('CPU Architecture', sku => getSpec(sku).architecture || 'x64')}
-                        {specRow('Memory (GiB)', sku => getSpec(sku).memoryGib ?? 'â€”')}
+                        {specRow('Memory (GiB)', sku => getSpec(sku).memoryGib ?? '—')}
                         {specRow('Hyper-V Generations', sku => getSpec(sku).hyperVGen || 'V1')}
-                        {specRow('ACUs', sku => getSpec(sku).acus ?? 'â€”')}
+                        {specRow('ACUs', sku => getSpec(sku).acus ?? '—')}
                         {specRow('GPUs', sku => getSpec(sku).gpus ?? 0)}
 
                         <tr className="section-row"><td colSpan={selectedSkus.length + 1}>Network & Disk</td></tr>
-                        {specRow('Max Network Interfaces', sku => getSpec(sku).maxNics ?? 'â€”')}
+                        {specRow('Max Network Interfaces', sku => getSpec(sku).maxNics ?? '—')}
                         {specRow('RDMA Enabled', sku => <BoolCell value={getSpec(sku).rdma} />)}
                         {specRow('Accelerated Net', sku => <BoolCell value={getSpec(sku).acceleratedNet} />)}
                         {specRow('OS Disk Size', sku => {
                             const s = getSpec(sku);
-                            return s.osDiskSizeMb ? `${(s.osDiskSizeMb / 1024).toFixed(0)} GiB` : 'â€”';
+                            return s.osDiskSizeMb ? `${(s.osDiskSizeMb / 1024).toFixed(0)} GiB` : '—';
                         })}
                         {specRow('Res Disk Size', sku => {
                             const s = getSpec(sku);
-                            return s.resDiskSizeMb ? `${(s.resDiskSizeMb / 1024).toFixed(0)} GiB` : 'â€”';
+                            return s.resDiskSizeMb ? `${(s.resDiskSizeMb / 1024).toFixed(0)} GiB` : '—';
                         })}
-                        {specRow('Max Data Disks', sku => getSpec(sku).maxDisks ?? 'â€”')}
+                        {specRow('Max Data Disks', sku => getSpec(sku).maxDisks ?? '—')}
                         {specRow('Support Premium Disk', sku => <BoolCell value={getSpec(sku).premiumDisk} />)}
-                        {specRow('Combined IOPS', sku => getSpec(sku).combinedIops ?? 'â€”', "Combined IOPS is a sum of all attached disk's IOPs")}
-                        {specRow('Uncached Disk IOPS', sku => getSpec(sku).uncachedIops ?? 'â€”')}
+                        {specRow('Combined IOPS', sku => getSpec(sku).combinedIops ?? '—', "Combined IOPS is a sum of all attached disk's IOPs")}
+                        {specRow('Uncached Disk IOPS', sku => getSpec(sku).uncachedIops ?? '—')}
                         {specRow('Combined Write Throughput', sku => {
                             const bytes = getSpec(sku).combinedWriteBytes;
-                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : 'â€”';
+                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : '—';
                         }, "Combined Write is a sum of all attached disk's write throughput")}
                         {specRow('Combined Read Throughput', sku => {
                             const bytes = getSpec(sku).combinedReadBytes;
-                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : 'â€”';
+                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : '—';
                         }, "Combined Read is a sum of all attached disk's read throughput")}
 
                         <tr className="section-row"><td colSpan={selectedSkus.length + 1}>Price Summary</td></tr>
@@ -217,7 +217,7 @@ function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, 
                             <td className="label-col">Perf Score Ratio</td>
                             {selectedSkus.map(sku => {
                                 const score = getSpec(sku)?.perfScore || 1;
-                                return <td key={sku}><strong>{firstSkuScore > 0 ? (score / firstSkuScore).toFixed(2) : 'â€”'}x</strong></td>;
+                                return <td key={sku}><strong>{firstSkuScore > 0 ? (score / firstSkuScore).toFixed(2) : '—'}x</strong></td>;
                             })}
                         </tr>
 
@@ -269,7 +269,7 @@ function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, 
                                         const entry = regions[sku]?.find(e => e.region === regionCode);
                                         return (
                                             <td key={sku} className="price-cell">
-                                                {entry ? formatPrice(entry.price, currency) : <span className="text-muted">â€”</span>}
+                                                {entry ? formatPrice(entry.price, currency) : <span className="text-muted">—</span>}
                                             </td>
                                         );
                                     })}
@@ -283,7 +283,7 @@ function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, 
     );
 }
 
-// "€"€ Main Page "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€
+// ── Main Page ────────────────────────────────────────────────────"─
 export default function VmComparisonPage() {
     const { region, currency, setCurrency } = useEstimate();
 
@@ -436,7 +436,7 @@ export default function VmComparisonPage() {
 
     const updateDate = lastUpdate
         ? lastUpdate.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
-        : 'â€”';
+        : '—';
 
     if (isComparing) {
         return (
@@ -455,7 +455,7 @@ export default function VmComparisonPage() {
 
     return (
         <div className="vm-page content-area">
-            {/* "€"€ Hero "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
+            {/* ── Hero ──────────────────────────────────────────── */}
             <div className="vm-hero-block">
                 <div className="vm-hero-top">
                     <div>
@@ -479,7 +479,7 @@ export default function VmComparisonPage() {
                 </p>
             </div>
 
-            {/* "€"€ Controls bar "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
+            {/* ── Controls bar ──────────────────────────────────── */}
             <div className="vm-controls-bar">
                 <div className="controls-group">
                     <select className="ctrl-select" value={currency} onChange={e => setCurrency(e.target.value, [])}>
@@ -496,14 +496,14 @@ export default function VmComparisonPage() {
                 </div>
             </div>
 
-            {/* "€"€ Filter row "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
+            {/* ── Filter row ────────────────────────────────────── */}
             <div className="vm-filter-row">
                 <div className="vm-filter-group">
                     <div className="vm-filter-chip">
                         <label className="filter-label">vCPUs</label>
                         <div className="filter-range-inputs">
                             <input type="number" className="filter-range-input" placeholder="Min" min="1" value={minVcpu} onChange={e => setMinVcpu(e.target.value)} />
-                            <span className="filter-range-sep">â€“</span>
+                            <span className="filter-range-sep">—─“</span>
                             <input type="number" className="filter-range-input" placeholder="Max" min="1" value={maxVcpu} onChange={e => setMaxVcpu(e.target.value)} />
                         </div>
                     </div>
@@ -511,7 +511,7 @@ export default function VmComparisonPage() {
                         <label className="filter-label">Memory (GiB)</label>
                         <div className="filter-range-inputs">
                             <input type="number" className="filter-range-input" placeholder="Min" min="1" value={minMemory} onChange={e => setMinMemory(e.target.value)} />
-                            <span className="filter-range-sep">â€“</span>
+                            <span className="filter-range-sep">—─“</span>
                             <input type="number" className="filter-range-input" placeholder="Max" min="1" value={maxMemory} onChange={e => setMaxMemory(e.target.value)} />
                         </div>
                     </div>
@@ -534,7 +534,7 @@ export default function VmComparisonPage() {
                 </button>
             </div>
 
-            {/* "€"€ VM Table "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
+            {/* ── VM Table ──────────────────────────────────────── */}
             <div className="vm-table-container">
                 <table className="vm-table">
                     <thead>
@@ -603,12 +603,12 @@ export default function VmComparisonPage() {
                                     </td>
                                     <td>
                                         <span className={`spec-val ${!vCpus ? 'spec-missing' : ''}`}>
-                                            {vCpus != null ? (vCpuFromStatic ? `~${vCpus}` : vCpus) : 'â€”'}
+                                            {vCpus != null ? (vCpuFromStatic ? `~${vCpus}` : vCpus) : '—'}
                                         </span>
                                     </td>
                                     <td>
                                         <span className={`spec-val ${!memGib ? 'spec-missing' : ''}`}>
-                                            {memGib != null ? (memFromStatic ? `~${memGib}` : memGib) : 'â€”'}
+                                            {memGib != null ? (memFromStatic ? `~${memGib}` : memGib) : '—'}
                                         </span>
                                     </td>
                                     <td className="price-cell">
@@ -616,24 +616,24 @@ export default function VmComparisonPage() {
                                             <span className={`price-badge ${vm.linuxPrice < 0.1 ? 'price-green' : vm.linuxPrice < 0.5 ? 'price-blue' : 'price-default'}`}>
                                                 {formatPrice(vm.linuxPrice, currency)}
                                             </span>
-                                        ) : <span className="price-na">â€”</span>}
+                                        ) : <span className="price-na">—</span>}
                                     </td>
                                     <td className="price-cell">
                                         {vm.windowsPrice != null ? (
                                             <span className="price-badge price-default">
                                                 {formatPrice(vm.windowsPrice, currency)}
                                             </span>
-                                        ) : <span className="price-na">â€”</span>}
+                                        ) : <span className="price-na">—</span>}
                                     </td>
                                     <td>
                                         <div className="best-region-cell">
-                                            <span className="best-region-name">{vm.bestRegion || 'â€”'}</span>
+                                            <span className="best-region-name">{vm.bestRegion || '—'}</span>
                                         </div>
                                     </td>
                                     <td>
                                         {vm.diffPercent > 0 ? (
                                             <span className="savings-badge">-{vm.diffPercent}%</span>
-                                        ) : <span className="price-na">â€”</span>}
+                                        ) : <span className="price-na">—</span>}
                                     </td>
                                 </tr>
                             );
@@ -673,7 +673,7 @@ export default function VmComparisonPage() {
                 </div>
             )}
 
-            {/* "€"€ Selection bar "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
+            {/* ── Selection bar ──────────────────────────────────"─ */}
             {selectedSkus.length > 0 && (
                 <div className="compare-bar">
                     <div className="compare-bar-info">
@@ -707,7 +707,7 @@ export default function VmComparisonPage() {
                 </div>
             )}
 
-            {/* "€"€ Pricing Compare Modal "€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€"€ */}
+            {/* ── Pricing Compare Modal ──────────────────────────"─ */}
             {showPricingCard && (
                 <div className="modal-overlay" onClick={() => setShowPricingCard(false)}>
                     <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -771,7 +771,7 @@ export default function VmComparisonPage() {
                                                                     <span className="modal-price-label">{suffix} Win</span>
                                                                 </div>
                                                             </div>
-                                                        ) : <span className="price-na">â€”</span>}
+                                                        ) : <span className="price-na">—</span>}
                                                     </td>
                                                 );
                                             })}

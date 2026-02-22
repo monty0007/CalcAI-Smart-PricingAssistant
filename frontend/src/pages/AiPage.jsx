@@ -7,9 +7,9 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
 // ── Env config ───────────────────────────────────────────────────────
-const AI_ENDPOINT = import.meta.env.VITE_AI_ENDPOINT;
-const AI_API_KEY = import.meta.env.VITE_AI_API_KEY;
-const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'gpt-4o-mini';
+const AI_ENDPOINT = import.meta.env.VITE_OPENAI_ENDPOINT;
+const AI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+const AI_MODEL = import.meta.env.VITE_OPENAI_MODEL || 'gpt-4o-mini';
 
 // ── Suggested prompts ────────────────────────────────────────────────
 const SUGGESTED_PROMPTS = [
@@ -208,6 +208,9 @@ export default function AiPage() {
         const query = (text || input).trim();
         if (!query || loading) return;
         setInput('');
+        if (inputRef.current) {
+            inputRef.current.style.height = 'auto';
+        }
 
         const userMsgId = msgIdRef.current++;
         setMessages(prev => [...prev, { id: userMsgId, role: 'user', content: query, type: 'text' }]);
@@ -409,10 +412,15 @@ export default function AiPage() {
                     <textarea
                         ref={inputRef}
                         className="ai-input"
+                        style={{ resize: 'none', overflowY: 'auto', minHeight: '44px' }}
                         rows={1}
                         placeholder="Ask about Azure pricing… (e.g. cheapest VM in India)"
                         value={input}
-                        onChange={e => setInput(e.target.value)}
+                        onChange={e => {
+                            setInput(e.target.value);
+                            e.target.style.height = 'auto';
+                            e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
+                        }}
                         onKeyDown={handleKeyDown}
                     />
                     <button
