@@ -27,7 +27,6 @@ export async function query(text, params) {
 }
 
 // ── Schema ──────────────────────────────────────
-// ── Schema ──────────────────────────────────────
 export async function initDB() {
     // 1. Create the main table
     // Note: The Python script (initial_pricing_load.py) allows for a complete rebuild.
@@ -205,6 +204,18 @@ export async function initDB() {
     );
     `);
 
+    // 4b. AI Chats Table
+    await query(`
+    CREATE TABLE IF NOT EXISTS ai_chats (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        title TEXT NOT NULL,
+        messages JSONB NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+    `);
+
     // 5. Sync Log Table
     await query(`
     CREATE TABLE IF NOT EXISTS sync_log (
@@ -317,12 +328,6 @@ export async function queryPrices({
  */
 export async function upsertPrices(items) {
     if (items.length === 0) return 0;
-    // Implementation left as is or updated if needed. 
-    // Since USER said "updates will be manual... trigger Python script", 
-    // we can probably leave this or simplify. 
-    // I will comment it out or leave as legacy to avoid breaking imports, 
-    // but it won't work with new schema without rewrite.
-    // Let's throw error to avoid misuse.
     console.warn("⚠️ upsertPrices in Node is deprecated. Use python script.");
     return 0;
 }

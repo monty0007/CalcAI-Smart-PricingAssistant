@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Download, Plus, RefreshCw, FileSpreadsheet, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Download, Plus, RefreshCw, FileSpreadsheet, ChevronRight, ArrowLeft, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { fetchServicePricing, formatPrice, searchPrices, fetchVmList, calculateEstimate } from '../services/azurePricingApi';
+import { fetchChats, fetchChat, createChat, updateChat, deleteChat } from '../services/aiChatsApi';
 import { useEstimate } from '../context/EstimateContext';
+import { useAuth } from '../context/AuthContext';
 import { POPULAR_SERVICES } from '../data/serviceCatalog';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -110,7 +112,16 @@ ${pricingContext ? `\n\n=== REAL-TIME PRICING DATA FROM DATABASE ===\n${pricingC
                                                 category: { type: "string" },
                                                 service: { type: "string" },
                                                 name: { type: "string" },
-                                                configuration: { type: "object" }
+                                                configuration: {
+                                                    type: "object",
+                                                    properties: {
+                                                        sku: { type: "string", description: "The exact SKU Name, e.g. D8s_v5 or D8s v5" },
+                                                        os: { type: "string", description: "OS type like Windows or Linux" },
+                                                        tier: { type: "string", description: "Standard, Basic, Premium etc." },
+                                                        reservation: { type: "string", description: "Any reservation term, e.g. 1 Year" },
+                                                        quantity: { type: "number", description: "Quantity of instances" }
+                                                    }
+                                                }
                                             },
                                             required: ["category", "service"]
                                         }
@@ -244,18 +255,54 @@ function PricingCard({ item, currency, onAddToEstimate }) {
     );
 }
 
+// ── Title generation ──────────────────────────────────────────────────
+async function generateChatTitle(query) {
+    const fallback = query.slice(0, 30) + (query.length > 30 ? '...' : '');
+    if (!AI_ENDPOINT || !AI_API_KEY) return fallback;
+    try {
+        const res = await fetch(AI_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${AI_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: AI_MODEL,
+                messages: [
+                    { role: 'system', content: 'Summarize the user query into a short chat title (max 4 words). Do not use quotes, punctuation, or conversational text.' },
+                    { role: 'user', content: query }
+                ],
+                max_tokens: 10,
+                temperature: 0.3
+            }),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const title = data.choices?.[0]?.message?.content?.trim();
+            if (title) return title.replace(/^["']|["']$/g, '');
+        }
+    } catch { }
+    return fallback;
+}
+
 // ── Main page ─────────────────────────────────────────────────────────
 export default function AiPage() {
     const { currency, addItem } = useEstimate();
+    const { user, token } = useAuth();
     const navigate = useNavigate();
     const hasAI = Boolean(AI_ENDPOINT && AI_API_KEY);
 
-    const [messages, setMessages] = useState([{
+    const [chatList, setChatList] = useState([]);
+    const [currentChatId, setCurrentChatId] = useState(null);
+
+    const initialMessage = {
         id: 0,
         role: 'bot',
         content: `Hi! I'm your **Azure Pricing Assistant**.\n\nAsk me anything about Azure service costs — I'll fetch real pricing data and explain it clearly. ${hasAI ? 'AI analysis is enabled.' : 'Connect an AI key in `.env` for enhanced explanations.'}`,
         type: 'text',
-    }]);
+    };
+
+    const [messages, setMessages] = useState([{ ...initialMessage }]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const msgIdRef = useRef(1);
@@ -265,6 +312,50 @@ export default function AiPage() {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, loading]);
+
+    useEffect(() => {
+        loadChatList();
+    }, [token]);
+
+    async function loadChatList() {
+        try {
+            const list = await fetchChats(token);
+            setChatList(list || []);
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    function handleNewChat() {
+        setCurrentChatId(null);
+        setMessages([{ ...initialMessage }]);
+    }
+
+    async function handleLoadChat(id) {
+        try {
+            const chatObj = await fetchChat(id, token);
+            setCurrentChatId(chatObj.id);
+            setMessages(chatObj.messages || []);
+        } catch (e) {
+            console.error(e);
+            toast.error('Failed to load chat');
+        }
+    }
+
+    async function handleDeleteChat(id, e) {
+        e.stopPropagation();
+        try {
+            await deleteChat(id, token);
+            setChatList(prev => prev.filter(c => String(c.id) !== String(id)));
+            if (String(currentChatId) === String(id)) {
+                handleNewChat();
+            }
+            toast.success('Chat deleted');
+        } catch (e) {
+            console.error(e);
+            toast.error('Failed to delete chat');
+        }
+    }
 
     function handleAddToEstimate(item) {
         addItem({
@@ -289,7 +380,8 @@ export default function AiPage() {
         }
 
         const userMsgId = msgIdRef.current++;
-        setMessages(prev => [...prev.slice(-9), { id: userMsgId, role: 'user', content: query, type: 'text' }]);
+        let currentMsgs = [...messages.slice(-50), { id: userMsgId, role: 'user', content: query, type: 'text' }];
+        setMessages(currentMsgs);
         setLoading(true);
 
         try {
@@ -415,21 +507,38 @@ export default function AiPage() {
                 responseText = `I couldn't find specific pricing for that query. Try asking about:\n\n• **Virtual Machines** — e.g. "cheapest VM in India"\n• **Storage** — e.g. "blob storage pricing"\n• **Databases** — e.g. "Azure SQL cost"\n• **Containers** — e.g. "AKS pricing"\n\nOr be more specific about the service you need!`;
             }
 
-            setMessages(prev => [...prev.slice(-9), {
+            const botMsg = {
                 id: msgIdRef.current++,
                 role: 'bot',
                 content: responseText,
                 type: pricingData ? 'pricing' : 'text',
                 pricingData,
                 region: parsed.region,
-            }]);
+            };
+            currentMsgs = [...currentMsgs, botMsg];
+            setMessages(currentMsgs);
+
+            // Save to DB / LocalStorage
+            try {
+                if (currentChatId) {
+                    await updateChat(currentChatId, null, currentMsgs, token);
+                } else {
+                    const title = await generateChatTitle(query);
+                    const newChat = await createChat(title, currentMsgs, token);
+                    setCurrentChatId(newChat.id);
+                    await loadChatList();
+                }
+            } catch (err) { console.error('Failed to save chat', err); }
+
         } catch (err) {
-            setMessages(prev => [...prev.slice(-9), {
+            const botMsg = {
                 id: msgIdRef.current++,
                 role: 'bot',
                 content: `Something went wrong: ${err.message}. Please try again.`,
                 type: 'text',
-            }]);
+            };
+            currentMsgs = [...currentMsgs, botMsg];
+            setMessages(currentMsgs);
         } finally {
             setLoading(false);
             inputRef.current?.focus();
@@ -446,19 +555,28 @@ export default function AiPage() {
         <div className="ai-page">
             {/* ── Left Sidebar (History) ───────────────────────── */}
             <div className="ai-sidebar">
-                <div className="ai-sidebar-header">
+                <div className="ai-sidebar-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <button className="ai-back-btn" onClick={() => navigate(-1)} title="Back to Dashboard">
                         <ArrowLeft size={18} />
                     </button>
-                    <h2>Chat History</h2>
+                    <h2 style={{ flex: 1, margin: 0, fontSize: '1rem' }}>Chat History</h2>
+                    <button className="btn btn-primary" style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }} onClick={handleNewChat} title="New Chat">
+                        <Plus size={14} /> New
+                    </button>
                 </div>
                 <div className="ai-sidebar-content">
-                    <div className="ai-history-label">Today</div>
-                    <button className="ai-history-btn">Azure VM Comparison</button>
-                    <button className="ai-history-btn">Cheapest Database Options</button>
-                    <div className="ai-history-label" style={{ marginTop: '20px' }}>Previous 7 Days</div>
-                    <button className="ai-history-btn">Blob Storage vs Data Lake</button>
-                    <button className="ai-history-btn">AKS Node Sizing</button>
+                    {chatList.length === 0 ? (
+                        <div style={{ padding: '10px 15px', color: 'var(--text-light)', fontSize: '0.9rem' }}>No recent chats.</div>
+                    ) : (
+                        chatList.map(chat => (
+                            <div key={chat.id} className={`ai-history-btn ${String(currentChatId) === String(chat.id) ? 'active' : ''}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }} onClick={() => handleLoadChat(chat.id)}>
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>{chat.title}</span>
+                                <button className="ai-history-delete-btn" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }} onClick={(e) => handleDeleteChat(chat.id, e)} title="Delete chat">
+                                    <Trash2 size={12} />
+                                </button>
+                            </div>
+                        ))
+                    )}
                 </div>
             </div>
 

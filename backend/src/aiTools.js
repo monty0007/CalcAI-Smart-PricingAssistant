@@ -22,10 +22,19 @@ router.post('/calculate_estimate', async (req, res) => {
 
             // Build a dynamic search string from the configuration
             let searchKeywords = [];
+            let isWindows = false;
+            let isSpot = false;
+
             if (configuration) {
+                const strCfg = JSON.stringify(configuration).toLowerCase();
+                isWindows = strCfg.includes('windows');
+                isSpot = strCfg.includes('spot') || strCfg.includes('low priority');
+
+                if (configuration.sku) searchKeywords.push(configuration.sku);
+
                 // Extract string values to use as keywords
                 Object.values(configuration).forEach(val => {
-                    if (typeof val === 'string') {
+                    if (typeof val === 'string' && val.length > 1 && val.length < 40) {
                         searchKeywords.push(val);
                     }
                 });
@@ -43,6 +52,15 @@ router.post('/calculate_estimate', async (req, res) => {
 
             if (category === 'Compute' || category === 'Virtual Machines') {
                 sql += ` AND service_name = 'Virtual Machines'`;
+                if (isWindows) {
+                    sql += ` AND product_name ILIKE '%Windows%'`;
+                } else {
+                    sql += ` AND product_name NOT ILIKE '%Windows%'`;
+                }
+
+                if (!isSpot) {
+                    sql += ` AND product_name NOT ILIKE '%Spot%' AND product_name NOT ILIKE '%Low Priority%' AND sku_name NOT ILIKE '%Spot%' AND sku_name NOT ILIKE '%Low Priority%'`;
+                }
             } else if (category === 'Storage' || category === 'Storage Accounts') {
                 sql += ` AND service_name = 'Storage'`;
             }
@@ -50,12 +68,13 @@ router.post('/calculate_estimate', async (req, res) => {
             // Apply fuzzy search
             if (searchKeywords.length > 0) {
                 // Try to find the SKU or product name match
-                // We'll just construct a basic ILIKE against product_name or meter_name for the first highly salient keyword
-                // A very robust engine is too large, so we do a simple heuristic
-                const importantKeyword = searchKeywords.find(k => k.length >= 3) || searchKeywords[0];
+                // Avoid using huge strings as keywords
+                const importantKeyword = searchKeywords.find(k => k.length >= 3 && k.length <= 30) || searchKeywords[0];
                 if (importantKeyword) {
+                    // Try exact SKU match logic if it looks like a VM sku (e.g. contains v3, v4, v5, or matches word boundaries) 
+                    const cleanSku = importantKeyword.replace(/_/g, ' ').trim();
                     sql += ` AND (sku_name ILIKE $${paramIdx} OR product_name ILIKE $${paramIdx} OR raw_data->>'meterName' ILIKE $${paramIdx})`;
-                    args.push(`%${importantKeyword.trim()}%`);
+                    args.push(`%${cleanSku}%`);
                     paramIdx++;
                 }
             }

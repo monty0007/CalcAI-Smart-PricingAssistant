@@ -6,6 +6,7 @@ import { runFullSync, runQuickSync } from './sync.js';
 import { initScheduler } from './scheduler.js';
 import authRouter, { authenticateToken } from './auth.js';
 import toolsRouter from './aiTools.js';
+import chatsRouter from './chats.js';
 
 dotenv.config();
 
@@ -19,6 +20,7 @@ app.use(express.json());
 // ── Routes ──────────────────────────────────────
 app.use('/api/auth', authRouter);
 app.use('/api/tools', toolsRouter);
+app.use('/api/chats', chatsRouter);
 
 /**
  * GET /api/prices
