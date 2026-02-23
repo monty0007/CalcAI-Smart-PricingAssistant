@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Sparkles, Download, Plus, RefreshCw, FileSpreadsheet, ChevronRight, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { fetchServicePricing, formatPrice, searchPrices, fetchVmList } from '../services/azurePricingApi';
+import { fetchServicePricing, formatPrice, searchPrices, fetchVmList, calculateEstimate } from '../services/azurePricingApi';
 import { useEstimate } from '../context/EstimateContext';
 import { POPULAR_SERVICES } from '../data/serviceCatalog';
 import ReactMarkdown from 'react-markdown';
@@ -59,23 +59,25 @@ function parseQuery(query) {
 }
 
 // ── AI call ──────────────────────────────────────────────────────────
-async function callAI(messages, pricingContext) {
+async function callAI(messages, pricingContext, depth = 0) {
     if (!AI_ENDPOINT || !AI_API_KEY) return null;
+    if (depth > 2) return "I'm sorry, I encountered too many tool operations to process this effectively.";
 
     const systemMsg = {
         role: 'system',
         content: `You are a strict Azure Pricing Assistant. You must ONLY answer questions related to Azure services, cloud computing, and pricing. If the user asks about anything else, politely decline and say you can only help with Azure pricing.
 
 CRITICAL RULES FOR PRICING:
-1. You MUST ONLY use the real-time pricing data provided below to answer pricing queries.
+1. You MUST ONLY use the real-time pricing data provided below OR data retrieved via the \`calculate_estimate\` tool to answer pricing queries.
 2. DO NOT use your pre-trained knowledge or internet data to guess prices.
-3. If the provided pricing data does not contain the answer to a pricing question, you must say: "I don't have the exact pricing for that in my current database context. Please try searching for a more specific service."
+3. If the provided data or tool output does not contain the answers, you must say: "I don't have the exact pricing for that in my current database context."
+4. NEVER ask the user for permission to use a tool. If a tool can help retrieve the requested pricing data, execute the tool IMMEDIATELY.
 
-When pricing data is provided, you MUST output the data as a clean Markdown table.
+When pricing data is provided either via context or tool call, you MUST output the data as a clean Markdown table summarizing the components.
 The table must include these exact columns:
-| Service / SKU | Product | Region | Price | Unit |
+| Service / SKU | Product | Cost | 
 
-Do not write long paragraphs or conversational filler. Simply provide the table and a one-sentence summary or recommendation if necessary.
+Do not write long paragraphs or conversational filler. Simply provide the table and a one-sentence summary or recommendation or the Grand Total calculated by the tool.
 ${pricingContext ? `\n\n=== REAL-TIME PRICING DATA FROM DATABASE ===\n${pricingContext}\n==============================================` : ''}`
     };
 
@@ -88,14 +90,77 @@ ${pricingContext ? `\n\n=== REAL-TIME PRICING DATA FROM DATABASE ===\n${pricingC
             },
             body: JSON.stringify({
                 model: AI_MODEL,
-                messages: [systemMsg, ...messages.slice(-8)],
-                max_tokens: 800,
+                messages: [systemMsg, ...messages],
+                max_tokens: 1500,
                 temperature: 0.7,
+                tools: [
+                    {
+                        type: "function",
+                        function: {
+                            name: "calculate_estimate",
+                            description: "Calculates total aggregate cost for one or more Azure infrastructure components. MUST be executed IMMEDIATELY without asking the user for permission. Not split requests. Not perform search-based lookups.",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    items: {
+                                        type: "array",
+                                        items: {
+                                            type: "object",
+                                            properties: {
+                                                category: { type: "string" },
+                                                service: { type: "string" },
+                                                name: { type: "string" },
+                                                configuration: { type: "object" }
+                                            },
+                                            required: ["category", "service"]
+                                        }
+                                    }
+                                },
+                                required: ["items"]
+                            }
+                        }
+                    }
+                ],
+                tool_choice: "auto"
             }),
         });
         if (!res.ok) return null;
+
         const data = await res.json();
-        return data.choices?.[0]?.message?.content || null;
+        const responseMessage = data.choices?.[0]?.message;
+        if (!responseMessage) return null;
+
+        if (responseMessage.tool_calls) {
+            const toolCall = responseMessage.tool_calls[0];
+            if (toolCall.function.name === 'calculate_estimate') {
+                try {
+                    const args = JSON.parse(toolCall.function.arguments);
+                    const backendResult = await calculateEstimate(args.items);
+
+                    messages.push(responseMessage);
+                    messages.push({
+                        role: 'tool',
+                        tool_call_id: toolCall.id,
+                        name: toolCall.function.name,
+                        content: JSON.stringify(backendResult)
+                    });
+
+                    return await callAI(messages, pricingContext, depth + 1);
+                } catch (e) {
+                    console.error("Tool execution error", e);
+                    messages.push(responseMessage);
+                    messages.push({
+                        role: 'tool',
+                        tool_call_id: toolCall.id,
+                        name: toolCall.function.name,
+                        content: JSON.stringify({ error: "Failed to map parameters natively" })
+                    });
+                    return await callAI(messages, pricingContext, depth + 1);
+                }
+            }
+        }
+
+        return responseMessage.content || null;
     } catch {
         return null;
     }
@@ -328,8 +393,10 @@ export default function AiPage() {
                 const aiMessages = messages
                     .filter(m => m.type === 'text')
                     .map(m => ({ role: m.role === 'bot' ? 'assistant' : 'user', content: m.content }));
-                aiMessages.push({ role: 'user', content: query });
-                aiText = await callAI(aiMessages, pricingContext);
+                // Grab the slice here to guarantee tool calls aren't clipped
+                const sliceFocus = aiMessages.slice(-8);
+                sliceFocus.push({ role: 'user', content: query });
+                aiText = await callAI(sliceFocus, pricingContext);
             }
 
             let responseText = '';

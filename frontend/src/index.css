@@ -5541,7 +5541,7 @@ body {
 
 .ai-header {
   border-bottom: none !important;
-  max-width: 860px;
+  max-width: none;
   margin: 0 auto;
   width: 100%;
   padding: 20px 24px 14px !important;
@@ -5550,7 +5550,7 @@ body {
 }
 
 .ai-chat-area {
-  max-width: 860px;
+  max-width: none;
   margin: 0 auto;
   width: 100%;
   padding: 20px 24px !important;
@@ -5558,7 +5558,7 @@ body {
 }
 
 .ai-input-area {
-  max-width: 860px;
+  max-width: none;
   margin: 0 auto;
   width: 100%;
   padding: 16px 24px 24px !important;
@@ -5582,6 +5582,7 @@ body {
   background: var(--bg-tertiary);
   color: var(--text-primary);
 }
+
 /*  AI Price Cards  */
 .ai-price-card {
   background: var(--bg-primary);
