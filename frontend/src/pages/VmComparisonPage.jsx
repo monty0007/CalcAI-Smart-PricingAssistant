@@ -1,29 +1,10 @@
 ﻿import { useState, useEffect } from 'react';
 import { Search, ArrowLeft, X, Check, ChevronDown, Download, SlidersHorizontal, Info, ArrowUp, ArrowDown } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
-import { VM_SPECS } from '../data/vmSpecs';
-import { fetchVmList, fetchVmComparison, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES } from '../services/azurePricingApi';
+import { fetchVmList, fetchVmComparison, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES, fetchBestVmPrices } from '../services/azurePricingApi';
 import { AZURE_REGIONS } from '../data/serviceCatalog';
 
 // ── Helpers ──────────────────────────────────────────────────────
-
-// Build a case-insensitive lookup map from VM_SPECS keys
-const VM_SPECS_MAP = {};
-Object.keys(VM_SPECS).forEach(key => {
-    VM_SPECS_MAP[key.toLowerCase()] = key;
-    // Also map without "Standard_" for short lookups
-    const short = key.replace(/^Standard_/i, '').toLowerCase();
-    VM_SPECS_MAP[short] = key;
-});
-
-function lookupSpec(skuName) {
-    if (!skuName) return null;
-    const exact = VM_SPECS[skuName];
-    if (exact) return exact;
-    const lower = skuName.toLowerCase();
-    const canonical = VM_SPECS_MAP[lower];
-    return canonical ? VM_SPECS[canonical] : null;
-}
 
 const SERIES_MAP = {
     A: 'A — Entry-level VMs for dev/test',
@@ -38,7 +19,7 @@ const SERIES_MAP = {
     N: 'N — GPU enabled VMs',
 };
 
-function getTooltipLines(skuName, spec) {
+function getTooltipLines(skuName) {
     const lines = [];
     if (!skuName) return lines;
     const parts = skuName.split('_').filter(Boolean);
@@ -55,9 +36,6 @@ function getTooltipLines(skuName, spec) {
     }
     const vPart = parts.find(p => /^v\d+$/i.test(p));
     if (vPart) lines.push(`${vPart} — version`);
-    if (spec?.vCpus && !lines.some(l => l.includes('vCPUs'))) {
-        lines.push(`${spec.vCpus} — The number of vCPUs`);
-    }
     return lines;
 }
 
@@ -81,207 +59,7 @@ function BoolCell({ value }) {
     );
 }
 
-// ── Compare View ──────────────────────────────────────────────────
-function CompareView({ selectedSkus, vmRows = [], onBack, onDeselect, currency, setCurrency }) {
-    const [os, setOs] = useState('linux');
-    const [compareData, setCompareData] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    // Build a map from skuName → API row data (has vCpus, memoryGib, etc. from DB)
-    const apiSpecMap = {};
-    vmRows.forEach(vm => { apiSpecMap[vm.skuName] = vm; });
-
-    // Merge: API data first, then static vmSpecs fallback
-    function getSpec(sku) {
-        const apiRow = apiSpecMap[sku] || {};
-        const staticSpec = lookupSpec(sku) || {};
-        return {
-            vCpus: apiRow.vCpus ?? staticSpec.vCpus ?? null,
-            memoryGib: apiRow.memoryGib ?? staticSpec.memory ?? null,
-            architecture: apiRow.cpuArchitecture || staticSpec.architecture || 'x64',
-            hyperVGen: apiRow.hyperVGen || staticSpec.hyperVGen || 'V1',
-            acus: apiRow.acus ?? staticSpec.acus ?? null,
-            gpus: apiRow.gpus ?? staticSpec.gpus ?? 0,
-            gpuType: apiRow.gpuType || null,
-            maxNics: apiRow.maxNics ?? staticSpec.maxNics ?? null,
-            rdma: apiRow.rdmaEnabled ?? staticSpec.rdma ?? false,
-            acceleratedNet: apiRow.acceleratedNet ?? staticSpec.acceleratedNet ?? false,
-            osDiskSizeMb: apiRow.osDiskSizeMb ?? null,
-            resDiskSizeMb: apiRow.resDiskSizeMb ?? null,
-            maxDisks: apiRow.maxDisks ?? staticSpec.maxDisks ?? null,
-            premiumDisk: apiRow.premiumDisk ?? staticSpec.premiumDisk ?? false,
-            combinedIops: apiRow.combinedIops ?? staticSpec.uncachedIops ?? null,
-            uncachedIops: apiRow.uncachedIops ?? null,
-            combinedWriteBytes: apiRow.combinedWriteBytes ?? null,
-            combinedReadBytes: apiRow.combinedReadBytes ?? null,
-            perfScore: apiRow.perfScore ?? staticSpec.score ?? null,
-            similarVMs: apiRow.similarVMs || [],
-            type: apiRow.canonicalName || staticSpec.type || null,
-        };
-    }
-    useEffect(() => {
-        setLoading(true);
-        fetchVmComparison({ skus: selectedSkus, currency, os })
-            .then(setCompareData)
-            .catch(console.error)
-            .finally(() => setLoading(false));
-    }, [selectedSkus, currency, os]);
-
-    const regions = compareData?.regions || {};
-    const allRegions = [...new Set(
-        Object.values(regions).flatMap(r => r.map(e => e.region))
-    )].sort();
-
-    const firstSkuScore = getSpec(selectedSkus[0])?.perfScore || 1;
-
-    const specRow = (label, fn, hint = null) => (
-        <tr>
-            <td className="label-col">
-                {hint && <p className="sub-label">{hint}</p>}
-                {label}
-            </td>
-            {selectedSkus.map(sku => <td key={sku}>{fn(sku)}</td>)}
-        </tr>
-    );
-
-    return (
-        <div className="vm-compare-page">
-            <div className="compare-page-header">
-                <button className="back-btn" onClick={onBack}>
-                    <ArrowLeft size={16} /> Back to List
-                </button>
-                <h1>Compare Azure Virtual Machines</h1>
-            </div>
-
-            <div className="comparison-table-wrapper">
-                <table className="comparison-table">
-                    <thead>
-                        <tr>
-                            <th className="label-col">Name</th>
-                            {selectedSkus.map(sku => (
-                                <th key={sku} className="sku-header-cell">
-                                    <div className="sku-header-inner">
-                                        <span>{sku}</span>
-                                        <button className="remove-sku-btn" onClick={() => onDeselect(sku)}>
-                                            <X size={14} />
-                                        </button>
-                                    </div>
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr className="section-row"><td colSpan={selectedSkus.length + 1}>Details</td></tr>
-                        <tr>
-                            <td className="label-col">Details</td>
-                            {selectedSkus.map(sku => (
-                                <td key={sku} style={{ fontSize: '0.82rem', lineHeight: 1.7 }}>
-                                    {getTooltipLines(sku, getSpec(sku)).map((l, i) => <div key={i}>{l}</div>)}
-                                </td>
-                            ))}
-                        </tr>
-                        {specRow('vCPUs', sku => getSpec(sku).vCpus ?? '—')}
-                        {specRow('CPU Architecture', sku => getSpec(sku).architecture || 'x64')}
-                        {specRow('Memory (GiB)', sku => getSpec(sku).memoryGib ?? '—')}
-                        {specRow('Hyper-V Generations', sku => getSpec(sku).hyperVGen || 'V1')}
-                        {specRow('ACUs', sku => getSpec(sku).acus ?? '—')}
-                        {specRow('GPUs', sku => getSpec(sku).gpus ?? 0)}
-
-                        <tr className="section-row"><td colSpan={selectedSkus.length + 1}>Network & Disk</td></tr>
-                        {specRow('Max Network Interfaces', sku => getSpec(sku).maxNics ?? '—')}
-                        {specRow('RDMA Enabled', sku => <BoolCell value={getSpec(sku).rdma} />)}
-                        {specRow('Accelerated Net', sku => <BoolCell value={getSpec(sku).acceleratedNet} />)}
-                        {specRow('OS Disk Size', sku => {
-                            const s = getSpec(sku);
-                            return s.osDiskSizeMb ? `${(s.osDiskSizeMb / 1024).toFixed(0)} GiB` : '—';
-                        })}
-                        {specRow('Res Disk Size', sku => {
-                            const s = getSpec(sku);
-                            return s.resDiskSizeMb ? `${(s.resDiskSizeMb / 1024).toFixed(0)} GiB` : '—';
-                        })}
-                        {specRow('Max Data Disks', sku => getSpec(sku).maxDisks ?? '—')}
-                        {specRow('Support Premium Disk', sku => <BoolCell value={getSpec(sku).premiumDisk} />)}
-                        {specRow('Combined IOPS', sku => getSpec(sku).combinedIops ?? '—', "Combined IOPS is a sum of all attached disk's IOPs")}
-                        {specRow('Uncached Disk IOPS', sku => getSpec(sku).uncachedIops ?? '—')}
-                        {specRow('Combined Write Throughput', sku => {
-                            const bytes = getSpec(sku).combinedWriteBytes;
-                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : '—';
-                        }, "Combined Write is a sum of all attached disk's write throughput")}
-                        {specRow('Combined Read Throughput', sku => {
-                            const bytes = getSpec(sku).combinedReadBytes;
-                            return bytes ? `${(bytes / 1048576).toFixed(0)} MiB/s` : '—';
-                        }, "Combined Read is a sum of all attached disk's read throughput")}
-
-                        <tr className="section-row"><td colSpan={selectedSkus.length + 1}>Price Summary</td></tr>
-                        <tr>
-                            <td className="label-col">Perf Score Ratio</td>
-                            {selectedSkus.map(sku => {
-                                const score = getSpec(sku)?.perfScore || 1;
-                                return <td key={sku}><strong>{firstSkuScore > 0 ? (score / firstSkuScore).toFixed(2) : '—'}x</strong></td>;
-                            })}
-                        </tr>
-
-                        {/* Regional Prices */}
-                        <tr className="section-row">
-                            <td colSpan={selectedSkus.length + 1}>
-                                Regional Prices
-                                <div className="regional-controls">
-                                    <select className="select-control" value={currency} onChange={e => setCurrency(e.target.value)}>
-                                        {SUPPORTED_CURRENCIES.map(c => (
-                                            <option key={c.code} value={c.code}>{c.name} ({c.symbol})</option>
-                                        ))}
-                                    </select>
-                                    <span className="ctrl-pill">Per Hour</span>
-                                    <select className="select-control" value={os} onChange={e => setOs(e.target.value)}>
-                                        <option value="linux">Linux</option>
-                                        <option value="windows">Windows</option>
-                                    </select>
-                                    <span className="ctrl-pill">Standard</span>
-                                    <span className="ctrl-pill">Pay-as-you-go</span>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr className="regional-header-row">
-                            <td className="label-col"><strong>Region</strong></td>
-                            {selectedSkus.map(sku => <td key={sku}><strong>{sku}</strong></td>)}
-                        </tr>
-                        {loading ? (
-                            <tr><td colSpan={selectedSkus.length + 1} style={{ textAlign: 'center', padding: 24 }}>
-                                <div className="spinner" style={{ margin: '0 auto' }} />
-                            </td></tr>
-                        ) : allRegions.map(regionCode => {
-                            const label = (() => {
-                                for (const sku of selectedSkus) {
-                                    const entry = regions[sku]?.find(e => e.region === regionCode);
-                                    if (entry?.location) return entry.location;
-                                }
-                                return regionCode;
-                            })();
-                            const regionAzure = AZURE_REGIONS.find(r => r.code === regionCode);
-                            const geo = regionAzure?.group || '';
-                            return (
-                                <tr key={regionCode} className="region-price-row">
-                                    <td className="label-col">
-                                        {geo && <span className="region-geo">{geo} / </span>}
-                                        {label} ({regionCode})
-                                    </td>
-                                    {selectedSkus.map(sku => {
-                                        const entry = regions[sku]?.find(e => e.region === regionCode);
-                                        return (
-                                            <td key={sku} className="price-cell">
-                                                {entry ? formatPrice(entry.price, currency) : <span className="text-muted">—</span>}
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-}
+// ── Compare View Removed ──────────────────────────────────────────
 
 // ── Main Page ────────────────────────────────────────────────────"─
 export default function VmComparisonPage() {
@@ -301,14 +79,24 @@ export default function VmComparisonPage() {
     const [pricingData, setPricingData] = useState(null);
     const [pricingLoading, setPricingLoading] = useState(false);
 
-    // Hardware Filters (client-side)
-    const [minVcpu, setMinVcpu] = useState('');
-    const [maxVcpu, setMaxVcpu] = useState('');
-    const [minMemory, setMinMemory] = useState('');
-    const [maxMemory, setMaxMemory] = useState('');
-
     const [lastUpdate, setLastUpdate] = useState(null);
     const [hoveredSku, setHoveredSku] = useState(null);
+    const [bestPrices, setBestPrices] = useState({});
+
+    // Fetch optimal prices
+    useEffect(() => {
+        let cancelled = false;
+        fetchBestVmPrices(currency).then(data => {
+            if (cancelled) return;
+            const priceMap = {};
+            (data.items || []).forEach(item => {
+                const skuKey = `Standard_${item.skuName.trim().replace(/\s+/g, '_')}`;
+                priceMap[skuKey] = { minPrice: item.minPrice, region: item.region };
+            });
+            setBestPrices(priceMap);
+        }).catch(err => console.error("Failed to load best prices:", err));
+        return () => { cancelled = true; };
+    }, [currency]);
 
     // Fetch last sync time once
     useEffect(() => {
@@ -327,7 +115,7 @@ export default function VmComparisonPage() {
         setAllVms([]);
         setVmRows([]);
 
-        fetchVmList({ currency, region, limit: 2000, offset: 0 })
+        fetchVmList({ currency, region, limit: 5000, offset: 0 })
             .then(data => {
                 if (cancelled) return;
                 const rows = data.items || [];
@@ -345,10 +133,6 @@ export default function VmComparisonPage() {
     // Client-side filter — runs instantly whenever filters or the full VM list changes
     useEffect(() => {
         const q = searchQuery.trim().toLowerCase();
-        const minV = parseFloat(minVcpu);
-        const maxV = parseFloat(maxVcpu);
-        const minM = parseFloat(minMemory);
-        const maxM = parseFloat(maxMemory);
 
         let rows = allVms;
 
@@ -357,16 +141,31 @@ export default function VmComparisonPage() {
             const term = q.startsWith('standard_') ? q.slice(9) : q;
             rows = rows.filter(vm => vm.skuName.toLowerCase().includes(term));
         }
-        if (!isNaN(minV)) rows = rows.filter(vm => (vm.specs?.vCpus ?? lookupSpec(vm.skuName)?.vCpus ?? 0) >= minV);
-        if (!isNaN(maxV)) rows = rows.filter(vm => (vm.specs?.vCpus ?? lookupSpec(vm.skuName)?.vCpus ?? 9999) <= maxV);
-        if (!isNaN(minM)) rows = rows.filter(vm => (vm.specs?.memoryGib ?? lookupSpec(vm.skuName)?.memory ?? 0) >= minM);
-        if (!isNaN(maxM)) rows = rows.filter(vm => (vm.specs?.memoryGib ?? lookupSpec(vm.skuName)?.memory ?? 9999) <= maxM);
+
+        // Apply best region and discount mapping
+        rows = rows.map(vm => {
+            const best = bestPrices[vm.skuName];
+            let bestRegion = '';
+            let diffPercent = 0;
+
+            if (best && vm.linuxPrice != null) {
+                if (best.minPrice < vm.linuxPrice * 0.99) {
+                    bestRegion = best.region;
+                    diffPercent = Math.round(((vm.linuxPrice - best.minPrice) / vm.linuxPrice) * 100);
+                } else if (vm.linuxPrice <= best.minPrice * 1.01) {
+                    bestRegion = 'This is best';
+                } else {
+                    bestRegion = best.region;
+                }
+            } else if (best && vm.linuxPrice == null) {
+                bestRegion = best.region;
+            }
+
+            return { ...vm, bestRegion, diffPercent };
+        });
 
         rows.sort((a, b) => {
             const getVal = (vm, key) => {
-                const spec = lookupSpec(vm.skuName);
-                if (key === 'vCpus') return vm.vCpus ?? spec?.vCpus ?? 0;
-                if (key === 'memoryGib') return vm.memoryGib ?? spec?.memory ?? spec?.memoryGib ?? 0;
                 if (key === 'linuxPrice') return vm.linuxPrice ?? 999999;
                 if (key === 'windowsPrice') return vm.windowsPrice ?? 999999;
                 if (key === 'bestRegion') return vm.bestRegion || 'zzz';
@@ -383,7 +182,7 @@ export default function VmComparisonPage() {
         });
 
         setVmRows(rows);
-    }, [allVms, searchQuery, minVcpu, maxVcpu, minMemory, maxMemory, sortConfig]);
+    }, [allVms, searchQuery, sortConfig, bestPrices]);
 
     const handleSort = (key) => {
         let direction = 'asc';
@@ -396,19 +195,17 @@ export default function VmComparisonPage() {
     const toggleSelection = (sku) => {
         setSelectedSkus(prev => {
             if (prev.includes(sku)) return prev.filter(s => s !== sku);
-            if (prev.length >= 2) return prev;
+            if (prev.length >= 5) return prev;
             return [...prev, sku];
         });
     };
 
     const handleDeselect = (sku) => {
         setSelectedSkus(prev => prev.filter(s => s !== sku));
-        if (selectedSkus.length <= 1) setIsComparing(false);
     };
 
     const handleClear = () => {
         setSelectedSkus([]);
-        setIsComparing(false);
         setShowPricingCard(false);
     };
 
@@ -438,21 +235,6 @@ export default function VmComparisonPage() {
         ? lastUpdate.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
         : '—';
 
-    if (isComparing) {
-        return (
-            <div className="vm-page content-area">
-                <CompareView
-                    selectedSkus={selectedSkus}
-                    vmRows={vmRows}
-                    onBack={() => setIsComparing(false)}
-                    onDeselect={handleDeselect}
-                    currency={currency}
-                    setCurrency={(c) => setCurrency(c, [])}
-                />
-            </div>
-        );
-    }
-
     return (
         <div className="vm-page content-area">
             {/* ── Hero ──────────────────────────────────────────── */}
@@ -474,8 +256,7 @@ export default function VmComparisonPage() {
                     </div>
                 </div>
                 <p className="vm-hero-desc">
-                    Browse and compare Azure Virtual Machines across SKUs, vCPU counts, memory, Linux and Windows pricing.
-                    Select up to 2 VMs to compare specs and regional pricing side-by-side.
+                    Browse and compare Azure Virtual Machines strictly on price. Select up to 5 VMs to compare global regional pricing side-by-side.
                 </p>
             </div>
 
@@ -498,25 +279,7 @@ export default function VmComparisonPage() {
 
             {/* ── Filter row ────────────────────────────────────── */}
             <div className="vm-filter-row">
-                <div className="vm-filter-group">
-                    <div className="vm-filter-chip">
-                        <label className="filter-label">vCPUs</label>
-                        <div className="filter-range-inputs">
-                            <input type="number" className="filter-range-input" placeholder="Min" min="1" value={minVcpu} onChange={e => setMinVcpu(e.target.value)} />
-                            <span className="filter-range-sep">—─“</span>
-                            <input type="number" className="filter-range-input" placeholder="Max" min="1" value={maxVcpu} onChange={e => setMaxVcpu(e.target.value)} />
-                        </div>
-                    </div>
-                    <div className="vm-filter-chip">
-                        <label className="filter-label">Memory (GiB)</label>
-                        <div className="filter-range-inputs">
-                            <input type="number" className="filter-range-input" placeholder="Min" min="1" value={minMemory} onChange={e => setMinMemory(e.target.value)} />
-                            <span className="filter-range-sep">—─“</span>
-                            <input type="number" className="filter-range-input" placeholder="Max" min="1" value={maxMemory} onChange={e => setMaxMemory(e.target.value)} />
-                        </div>
-                    </div>
-                </div>
-                <div className="vm-search-wrap">
+                <div className="vm-search-wrap" style={{ flex: 1, maxWidth: '500px' }}>
                     <Search size={14} className="search-icon" />
                     <input
                         type="text"
@@ -529,9 +292,6 @@ export default function VmComparisonPage() {
                         <button className="search-clear-btn" onClick={() => setSearchQuery('')}><X size={13} /></button>
                     )}
                 </div>
-                <button className="columns-btn">
-                    <SlidersHorizontal size={14} /> Columns <ChevronDown size={12} />
-                </button>
             </div>
 
             {/* ── VM Table ──────────────────────────────────────── */}
@@ -542,12 +302,6 @@ export default function VmComparisonPage() {
                             <th style={{ width: 36 }}></th>
                             <th className="sortable-th" onClick={() => handleSort('skuName')}>
                                 VM Name {sortConfig.key === 'skuName' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
-                            </th>
-                            <th className="sortable-th" style={{ width: 90 }} onClick={() => handleSort('vCpus')}>
-                                vCPUs {sortConfig.key === 'vCpus' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
-                            </th>
-                            <th className="sortable-th" style={{ width: 130 }} onClick={() => handleSort('memoryGib')}>
-                                Memory (GiB) {sortConfig.key === 'memoryGib' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
                             </th>
                             <th className="sortable-th" onClick={() => handleSort('linuxPrice')}>
                                 Linux / hr {sortConfig.key === 'linuxPrice' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
@@ -565,13 +319,8 @@ export default function VmComparisonPage() {
                     </thead>
                     <tbody>
                         {vmRows.map((vm, idx) => {
-                            const staticSpec = lookupSpec(vm.skuName);
-                            const vCpus = vm.vCpus ?? staticSpec?.vCpus;
-                            const memGib = vm.memoryGib ?? staticSpec?.memory;
-                            const vCpuFromStatic = vm.vCpus == null && staticSpec?.vCpus != null;
-                            const memFromStatic = vm.memoryGib == null && staticSpec?.memory != null;
                             const isSelected = selectedSkus.includes(vm.skuName);
-                            const tooltipLines = getTooltipLines(vm.skuName, { vCpus });
+                            const tooltipLines = getTooltipLines(vm.skuName);
                             const isHovered = hoveredSku === vm.skuName;
                             const isEven = idx % 2 === 0;
 
@@ -593,23 +342,13 @@ export default function VmComparisonPage() {
                                             onMouseLeave={() => setHoveredSku(null)}
                                         >
                                             <span className="sku-name">{vm.skuName}</span>
-                                            {(vm.canonicalName || staticSpec?.type) && (
-                                                <span className="sku-type-badge">{vm.canonicalName || staticSpec?.type}</span>
+                                            {vm.canonicalName && (
+                                                <span className="sku-type-badge">{vm.canonicalName}</span>
                                             )}
                                             {isHovered && tooltipLines.length > 0 && (
                                                 <VmTooltip lines={tooltipLines} />
                                             )}
                                         </div>
-                                    </td>
-                                    <td>
-                                        <span className={`spec-val ${!vCpus ? 'spec-missing' : ''}`}>
-                                            {vCpus != null ? (vCpuFromStatic ? `~${vCpus}` : vCpus) : '—'}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span className={`spec-val ${!memGib ? 'spec-missing' : ''}`}>
-                                            {memGib != null ? (memFromStatic ? `~${memGib}` : memGib) : '—'}
-                                        </span>
                                     </td>
                                     <td className="price-cell">
                                         {vm.linuxPrice != null ? (
@@ -639,13 +378,10 @@ export default function VmComparisonPage() {
                             );
                         })}
 
-                        {/* Skeleton loading rows */}
                         {loading && Array.from({ length: 8 }).map((_, i) => (
                             <tr key={`skel-${i}`} className="vm-row skeleton-row">
                                 <td><div className="skel-box" style={{ width: 20, height: 20, borderRadius: 4 }} /></td>
                                 <td><div className="skel-box" style={{ width: `${100 + (i % 3) * 40}px`, height: 14 }} /></td>
-                                <td><div className="skel-box" style={{ width: 30, height: 14 }} /></td>
-                                <td><div className="skel-box" style={{ width: 40, height: 14 }} /></td>
                                 <td><div className="skel-box" style={{ width: 70, height: 22, borderRadius: 12 }} /></td>
                                 <td><div className="skel-box" style={{ width: 70, height: 22, borderRadius: 12 }} /></td>
                                 <td><div className="skel-box" style={{ width: 80, height: 14 }} /></td>
@@ -655,7 +391,7 @@ export default function VmComparisonPage() {
 
                         {!loading && vmRows.length === 0 && (
                             <tr>
-                                <td colSpan={8} className="vm-empty-state">
+                                <td colSpan={6} className="vm-empty-state">
                                     <SlidersHorizontal size={32} strokeWidth={1} />
                                     <p>No VMs found matching your filters</p>
                                     <span>Try adjusting the vCPU, Memory, or search filters above</span>
@@ -673,11 +409,10 @@ export default function VmComparisonPage() {
                 </div>
             )}
 
-            {/* ── Selection bar ──────────────────────────────────"─ */}
             {selectedSkus.length > 0 && (
                 <div className="compare-bar">
                     <div className="compare-bar-info">
-                        <div className="compare-count-pill">{selectedSkus.length} / 2</div>
+                        <div className="compare-count-pill">{selectedSkus.length} / 5</div>
                         <div className="compare-selected-names">
                             {selectedSkus.map(s => (
                                 <span key={s} className="compare-sku-chip">
@@ -695,13 +430,6 @@ export default function VmComparisonPage() {
                             onClick={handleComparePricing}
                         >
                             Compare Pricing
-                        </button>
-                        <button
-                            className="compare-bar-btn specs"
-                            disabled={selectedSkus.length < 2}
-                            onClick={() => setIsComparing(true)}
-                        >
-                            Compare Specs
                         </button>
                     </div>
                 </div>

@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import 'github-markdown-css/github-markdown.css';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import toast from 'react-hot-toast';
 
 // ── Env config ───────────────────────────────────────────────────────
 const AI_ENDPOINT = import.meta.env.VITE_OPENAI_ENDPOINT;
@@ -144,6 +145,16 @@ function TypingIndicator() {
 
 // ── Pricing card ─────────────────────────────────────────────────────
 function PricingCard({ item, currency, onAddToEstimate }) {
+    const [isAdded, setIsAdded] = useState(false);
+
+    const handleAdd = () => {
+        if (isAdded) return;
+        onAddToEstimate(item);
+        setIsAdded(true);
+        toast.success(`Added ${item.name} to estimate`);
+        setTimeout(() => setIsAdded(false), 2000);
+    };
+
     return (
         <div className="ai-price-card">
             <div className="ai-price-card__header">
@@ -156,8 +167,12 @@ function PricingCard({ item, currency, onAddToEstimate }) {
             <div className="ai-price-card__sub">{item.product}</div>
             <div className="ai-price-card__footer">
                 <span className="ai-price-card__region">📍 {item.region}</span>
-                <button className="ai-add-btn" onClick={() => onAddToEstimate(item)}>
-                    <Plus size={12} /> Add to Estimate
+                <button
+                    className={`ai-add-btn ${isAdded ? 'added' : ''}`}
+                    onClick={handleAdd}
+                    disabled={isAdded}
+                >
+                    {isAdded ? '✓ Added' : <><Plus size={12} /> Add to Estimate</>}
                 </button>
             </div>
         </div>
@@ -209,7 +224,7 @@ export default function AiPage() {
         }
 
         const userMsgId = msgIdRef.current++;
-        setMessages(prev => [...prev, { id: userMsgId, role: 'user', content: query, type: 'text' }]);
+        setMessages(prev => [...prev.slice(-9), { id: userMsgId, role: 'user', content: query, type: 'text' }]);
         setLoading(true);
 
         try {
@@ -235,30 +250,58 @@ export default function AiPage() {
                     ).join('\n');
                 }
             } else {
-                const keywords = query.split(' ').filter(w => w.length > 3).join(' ');
+                // Extract keywords, removing common stop words
+                const stopWords = ['can', 'you', 'list', 'some', 'for', 'me', 'the', 'a', 'an', 'is', 'what', 'how', 'much', 'does', 'cost', 'price', 'pricing', 'of', 'in', 'show', 'tell', 'about'];
+                const keywords = query.split(' ')
+                    .filter(w => {
+                        const word = w.toLowerCase().replace(/[^a-z0-9_]/g, '');
+                        return word.length >= 2 && !stopWords.includes(word);
+                    }).join(' ');
+
                 const lowerQuery = query.toLowerCase();
                 let data = { items: [] };
 
                 // Fast path for specific VM queries
-                const isVmQuery = lowerQuery.includes('standard_') || lowerQuery.includes('basic_');
+                const isVmQuery = lowerQuery.includes('standard_') || lowerQuery.includes('basic_') || lowerQuery.includes('vms') || lowerQuery.includes('vm ') || lowerQuery.match(/\b[a-z]+\d+[a-z]*\s*v\d+\b/);
+
                 if (isVmQuery) {
+                    // Try to find an exact standard/basic term, or just use the generated keywords
                     const vmTerm = query.split(' ').find(w => w.toLowerCase().startsWith('standard_') || w.toLowerCase().startsWith('basic_')) || keywords;
-                    const vmData = await fetchVmList({ search: vmTerm, region: parsed.region, currency, limit: 10 }).catch(() => ({ items: [] }));
-                    if (vmData.items?.length > 0) {
-                        data.items = vmData.items.map(vm => ({
-                            skuName: vm.skuName,
-                            productName: 'Virtual Machines',
-                            retailPrice: vm.linuxPrice > 0 ? vm.linuxPrice : (vm.windowsPrice || 0),
-                            unitOfMeasure: '1 Hour',
-                            location: vm.bestRegion || parsed.region,
-                            currencyCode: currency,
-                            original: vm
-                        }));
+
+                    if (vmTerm) {
+                        const vmData = await fetchVmList({ search: vmTerm, region: parsed.region, currency, limit: 10 }).catch(() => ({ items: [] }));
+                        if (vmData.items?.length > 0) {
+                            data.items = vmData.items.map(vm => ({
+                                skuName: vm.skuName,
+                                productName: 'Virtual Machines',
+                                retailPrice: vm.linuxPrice > 0 ? vm.linuxPrice : (vm.windowsPrice || 0),
+                                unitOfMeasure: '1 Hour',
+                                location: vm.bestRegion || parsed.region,
+                                currencyCode: currency,
+                                original: vm
+                            }));
+                        }
+                    }
+
+                    // If it was a VM query but no specific SKU was found, fetch generic popular VMs as context
+                    if (data.items.length === 0) {
+                        const genericVmData = await fetchVmList({ search: '', region: parsed.region, currency, limit: 10 }).catch(() => ({ items: [] }));
+                        if (genericVmData.items?.length > 0) {
+                            data.items = genericVmData.items.map(vm => ({
+                                skuName: vm.skuName,
+                                productName: 'Virtual Machines',
+                                retailPrice: vm.linuxPrice > 0 ? vm.linuxPrice : (vm.windowsPrice || 0),
+                                unitOfMeasure: '1 Hour',
+                                location: vm.bestRegion || parsed.region,
+                                currencyCode: currency,
+                                original: vm
+                            }));
+                        }
                     }
                 }
 
-                // Fallback to full-text search
-                if (data.items.length === 0 && keywords) {
+                // Fallback to full-text search if not a VM query, or if still empty
+                if (data.items.length === 0 && keywords.trim().length >= 2 && keywords !== 'vms' && keywords !== 'hi' && keywords !== 'hello') {
                     data = await searchPrices(keywords, parsed.region, currency).catch(() => ({ items: [] }));
                 }
 
@@ -305,7 +348,7 @@ export default function AiPage() {
                 responseText = `I couldn't find specific pricing for that query. Try asking about:\n\n• **Virtual Machines** — e.g. "cheapest VM in India"\n• **Storage** — e.g. "blob storage pricing"\n• **Databases** — e.g. "Azure SQL cost"\n• **Containers** — e.g. "AKS pricing"\n\nOr be more specific about the service you need!`;
             }
 
-            setMessages(prev => [...prev, {
+            setMessages(prev => [...prev.slice(-9), {
                 id: msgIdRef.current++,
                 role: 'bot',
                 content: responseText,
@@ -314,7 +357,7 @@ export default function AiPage() {
                 region: parsed.region,
             }]);
         } catch (err) {
-            setMessages(prev => [...prev, {
+            setMessages(prev => [...prev.slice(-9), {
                 id: msgIdRef.current++,
                 role: 'bot',
                 content: `Something went wrong: ${err.message}. Please try again.`,

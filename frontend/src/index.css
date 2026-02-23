@@ -5582,3 +5582,122 @@ body {
   background: var(--bg-tertiary);
   color: var(--text-primary);
 }
+/*  AI Price Cards  */
+.ai-price-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+  width: 100%;
+  max-width: 320px;
+}
+
+.ai-price-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.ai-price-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 4px;
+  gap: 12px;
+}
+
+.ai-price-card__name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.ai-price-card__price {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+
+.ai-price-card__unit {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ai-price-card__sub {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.ai-price-card__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border-primary);
+  padding-top: 12px;
+}
+
+.ai-price-card__region {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ai-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ai-add-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.ai-add-btn.added {
+  background: var(--success) !important;
+  color: white !important;
+  border-color: var(--success) !important;
+  pointer-events: none;
+}
+
+/*  Compact AI Header Overrides  */
+.ai-header-wrapper {
+  padding-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.ai-header {
+  padding: 10px 24px 8px !important;
+}
+
+.ai-header__icon {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+.ai-header__title {
+  font-size: 1.15rem !important;
+  margin-bottom: 2px !important;
+}
+
+.ai-header__sub {
+  font-size: 0.8rem !important;
+  margin: 0 !important;
+}

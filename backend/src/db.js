@@ -403,7 +403,8 @@ export async function getBestVmPrices(currencyCode = 'USD') {
     const rate = rateRes.rows.length > 0 ? rateRes.rows[0].rate_from_usd : 1.0;
 
     sql = `
-    SELECT sku_name, MIN(retail_price) as min_price, arm_region_name
+    SELECT DISTINCT ON (sku_name)
+           sku_name, retail_price as min_price, arm_region_name
     FROM azure_prices
     WHERE service_name = 'Virtual Machines'
       AND type = 'Consumption'
@@ -413,7 +414,7 @@ export async function getBestVmPrices(currencyCode = 'USD') {
       AND LOWER(product_name) NOT LIKE '%spot%'
       AND LOWER(product_name) NOT LIKE '%low priority%'
       AND is_active = TRUE
-    GROUP BY sku_name, arm_region_name
+    ORDER BY sku_name, retail_price ASC
     `;
 
     const result = await query(sql);

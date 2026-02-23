@@ -5,7 +5,6 @@ import { initDB, queryPrices, getLastSync, getPriceCount, getBestVmPrices } from
 import { runFullSync, runQuickSync } from './sync.js';
 import { initScheduler } from './scheduler.js';
 import authRouter, { authenticateToken } from './auth.js';
-import { lookupSpec, normalizeSkuName, specMap } from './vmSpecs.js';
 
 dotenv.config();
 
@@ -36,6 +35,8 @@ app.get('/api/prices', async (req, res) => {
             search: searchText,
             limit,
         } = req.query;
+
+        console.log(`[API] /prices requested - service: ${serviceName}, region: ${region}, search: "${searchText || ''}"`);
 
         // Allow fetching all items if limit='all' or use provided number (default 200)
         // Removing hard cap of 1000 to allow full data fetch
@@ -70,6 +71,8 @@ app.get('/api/prices', async (req, res) => {
 app.get('/api/prices/search', async (req, res) => {
     try {
         const { q, region, currency = 'USD', limit = 100 } = req.query;
+
+        console.log(`[API] /prices/search requested - q: "${q}", region: ${region}`);
 
         if (!q) {
             return res.status(400).json({ error: 'Query parameter "q" is required' });
@@ -135,192 +138,6 @@ app.get('/api/best-vm-prices', async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch best prices', message: err.message });
-    }
-});
-
-/**
- * GET /api/vm-list
- * Returns grouped VM SKU rows with Linux + Windows prices, best region, and diff %.
- * Params: currency, region, search, minVcpu, maxVcpu, limit, offset
- */
-app.get('/api/vm-list', async (req, res) => {
-    try {
-        const {
-            currency = 'USD',
-            region = 'eastus',
-            search = '',
-            limit = 100,
-            offset = 0,
-        } = req.query;
-
-        const { query } = await import('./db.js');
-
-        // Get currency rate
-        const rateRes = await query('SELECT rate_from_usd FROM currency_rates WHERE currency_code = $1', [currency]);
-        const rate = rateRes.rows.length > 0 ? rateRes.rows[0].rate_from_usd : 1.0;
-
-        const args = [region];
-        let paramIdx = 2;
-
-        let searchClause = '';
-        if (search) {
-            searchClause = `AND (p.sku_name ILIKE $${paramIdx} OR p.product_name ILIKE $${paramIdx})`;
-            args.push(`%${search}%`);
-            paramIdx++;
-        }
-
-        // For each SKU in the given region, get the lowest Linux and Windows prices
-        const sql = `
-            WITH linux_prices AS (
-                SELECT sku_name, MIN(retail_price) AS linux_price
-                FROM azure_prices
-                WHERE service_name = 'Virtual Machines'
-                  AND type = 'Consumption'
-                  AND currency_code = 'USD'
-                  AND is_active = TRUE
-                  AND arm_region_name = $1
-                  AND retail_price > 0
-                  AND LOWER(product_name) NOT LIKE '%windows%'
-                  AND LOWER(product_name) NOT LIKE '%spot%'
-                  AND LOWER(product_name) NOT LIKE '%low priority%'
-                  AND LOWER(sku_name)     NOT LIKE '%spot%'
-                  AND LOWER(sku_name)     NOT LIKE '%low priority%'
-                  ${search ? `AND (LOWER(sku_name) LIKE LOWER($${paramIdx - 1}) OR LOWER(product_name) LIKE LOWER($${paramIdx - 1}))` : ''}
-                GROUP BY sku_name
-            ),
-            windows_prices AS (
-                SELECT sku_name, MIN(retail_price) AS windows_price
-                FROM azure_prices
-                WHERE service_name = 'Virtual Machines'
-                  AND type = 'Consumption'
-                  AND currency_code = 'USD'
-                  AND is_active = TRUE
-                  AND arm_region_name = $1
-                  AND retail_price > 0
-                  AND LOWER(product_name) LIKE '%windows%'
-                  AND LOWER(product_name) NOT LIKE '%spot%'
-                  AND LOWER(sku_name)     NOT LIKE '%spot%'
-                  AND LOWER(sku_name)     NOT LIKE '%low priority%'
-                GROUP BY sku_name
-            ),
-            best_prices AS (
-                SELECT sku_name,
-                       MIN(retail_price) AS best_price,
-                       arm_region_name AS best_region
-                FROM azure_prices
-                WHERE service_name = 'Virtual Machines'
-                  AND type = 'Consumption'
-                  AND currency_code = 'USD'
-                  AND is_active = TRUE
-                  AND retail_price > 0
-                  AND LOWER(product_name) NOT LIKE '%windows%'
-                  AND LOWER(product_name) NOT LIKE '%spot%'
-                  AND LOWER(sku_name)     NOT LIKE '%spot%'
-                  AND LOWER(sku_name)     NOT LIKE '%low priority%'
-                GROUP BY sku_name, arm_region_name
-                ORDER BY sku_name, min(retail_price)
-            ),
-            lowest_region AS (
-                SELECT DISTINCT ON (sku_name) sku_name, best_price, best_region
-                FROM best_prices
-                ORDER BY sku_name, best_price
-            )
-            SELECT
-                l.sku_name,
-                l.linux_price,
-                w.windows_price,
-                lr.best_price,
-                lr.best_region,
-                CASE WHEN l.linux_price > 0 AND lr.best_price > 0
-                     THEN ROUND(((l.linux_price - lr.best_price) / l.linux_price * 100)::numeric, 1)
-                     ELSE 0
-                END AS diff_percent,
-                -- Join vm_types for real spec data (canonical_name matches normalised sku e.g. "Standard_D2s_v3")
-                vt.number_of_cores,
-                vt.memory_mb,
-                vt.canonical_name,
-                vt.cpu_architecture,
-                vt.max_net_interfaces,
-                vt.gpus,
-                vt.support_premium_disk,
-                vt.combined_iops,
-                vt.uncached_disk_iops,
-                vt.combined_write_bytes,
-                vt.combined_read_bytes,
-                vt.acus,
-                vt.rdma_enabled,
-                vt.accelerated_net,
-                vt.hyper_v_gen,
-                vt.perf_score,
-                vt.max_data_disk_count,
-                vt.os_disk_size_mb,
-                vt.resource_disk_size_mb,
-                vt.gpu_type,
-                vt.gpu_ram_mb,
-                vt.gpu_total_ram_mb,
-                vt.similar_azure_vms
-            FROM linux_prices l
-            LEFT JOIN windows_prices w ON l.sku_name = w.sku_name
-            LEFT JOIN lowest_region lr ON l.sku_name = lr.sku_name
-            LEFT JOIN vm_types vt ON LOWER(vt.name) = LOWER('Standard_' || REPLACE(l.sku_name, ' ', '_'))
-            ORDER BY l.linux_price ASC NULLS LAST
-            LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
-        `;
-
-        args.push(parseInt(limit) || 100, parseInt(offset) || 0);
-
-        const result = await query(sql, args);
-
-        // Normalize DB sku_name to Standard_ format
-        // DB stores: "A0", "A1 v2", "D2s v3" etc.
-        // We want: "Standard_A0", "Standard_A1_v2", "Standard_D2s_v3"
-        function normalizeSkuName(rawSku) {
-            if (!rawSku) return rawSku;
-            // Skip if already has Standard_ prefix
-            if (/^Standard_/i.test(rawSku)) return rawSku;
-            // Convert spaces to underscores and prepend Standard_
-            const normalized = rawSku.trim().replace(/\s+/g, '_');
-            return `Standard_${normalized}`;
-        }
-
-        const rows = result.rows.map(r => ({
-            skuName: normalizeSkuName(r.sku_name),
-            rawSkuName: r.sku_name,
-            linuxPrice: r.linux_price ? r.linux_price * rate : null,
-            windowsPrice: r.windows_price ? r.windows_price * rate : null,
-            bestPrice: r.best_price ? r.best_price * rate : null,
-            bestRegion: r.best_region || null,
-            diffPercent: parseFloat(r.diff_percent) || 0,
-            // From vm_types table (null if not yet populated)
-            vCpus: r.number_of_cores ?? null,
-            memoryGib: r.memory_mb ? +(r.memory_mb / 1024).toFixed(2) : null,
-            canonicalName: r.canonical_name || null,
-            cpuArchitecture: r.cpu_architecture || null,
-            maxNics: r.max_net_interfaces ?? null,
-            gpus: r.gpus ?? null,
-            premiumDisk: r.support_premium_disk ?? null,
-            combinedIops: r.combined_iops ?? null,
-            uncachedIops: r.uncached_disk_iops ?? null,
-            combinedWriteBytes: r.combined_write_bytes ?? null,
-            combinedReadBytes: r.combined_read_bytes ?? null,
-            acus: r.acus ?? null,
-            rdmaEnabled: r.rdma_enabled ?? null,
-            acceleratedNet: r.accelerated_net ?? null,
-            hyperVGen: r.hyper_v_gen || null,
-            perfScore: r.perf_score ? parseFloat(r.perf_score) : null,
-            maxDisks: r.max_data_disk_count ?? null,
-            osDiskSizeMb: r.os_disk_size_mb ?? null,
-            resDiskSizeMb: r.resource_disk_size_mb ?? null,
-            gpuType: r.gpu_type || null,
-            gpuRamMb: r.gpu_ram_mb ? parseFloat(r.gpu_ram_mb) : null,
-            gpuTotalRamMb: r.gpu_total_ram_mb ? parseFloat(r.gpu_total_ram_mb) : null,
-            similarVMs: r.similar_azure_vms || [],
-        }));
-
-        res.json({ currency, region, count: rows.length, items: rows });
-    } catch (err) {
-        console.error('VM list error:', err);
-        res.status(500).json({ error: 'Failed to fetch VM list', message: err.message });
     }
 });
 
@@ -486,6 +303,8 @@ app.get('/api/vm-list', async (req, res) => {
             minMemory, maxMemory
         } = req.query;
 
+        console.log(`[API] /vm-list requested - search: "${search}", region: ${region}`);
+
         const safeLimit = Math.max(1, parseInt(limit) || 100);
         const safeOffset = Math.max(0, parseInt(offset) || 0);
 
@@ -529,49 +348,62 @@ app.get('/api/vm-list', async (req, res) => {
             let searchTerm = search.trim();
             if (searchTerm.toLowerCase().startsWith('standard_')) {
                 searchTerm = searchTerm.substring(9);
+            } else if (searchTerm.toLowerCase().startsWith('basic_')) {
+                searchTerm = searchTerm.substring(6);
             }
+
+            // Azure's raw API (and our DB) stores SKUs with spaces (e.g., 'B16pls v2')
+            // while ARM format uses underscores ('Standard_B16pls_v2').
+            searchTerm = searchTerm.replace(/_/g, ' ');
+
             // Use LOWER() LIKE instead of ILIKE so covered by expression index
-            searchClause = `AND LOWER(p.sku_name) LIKE $${paramIdx}`;
+            searchClause = `AND LOWER(sku_name) LIKE $${paramIdx}`;
             args.push(`%${searchTerm.toLowerCase()}%`);
             paramIdx++;
         }
 
         const sql = `
+            WITH all_skus AS (
+                SELECT DISTINCT sku_name
+                FROM azure_prices
+                WHERE
+                    currency_code = 'USD'
+                    AND is_active = TRUE
+                    AND service_name = 'Virtual Machines'
+                    AND type = 'Consumption'
+                    AND LOWER(sku_name) NOT LIKE '%spot%'
+                    AND LOWER(sku_name) NOT LIKE '%low priority%'
+                    ${searchClause}
+            )
             SELECT
-                CONCAT('Standard_', REPLACE(TRIM(p.sku_name), ' ', '_')) AS sku_key,
-                p.sku_name                                                AS raw_sku,
+                CONCAT('Standard_', REPLACE(TRIM(a.sku_name), ' ', '_')) AS sku_key,
+                a.sku_name                                                AS raw_sku,
 
-                -- Linux price: rows where product_name does NOT contain 'windows'
+                -- Linux price
                 MIN(CASE WHEN LOWER(p.product_name) NOT LIKE '%windows%'
                          THEN p.retail_price END)                         AS linux_usd,
 
-                -- Windows price: rows where product_name contains 'windows'
+                -- Windows price
                 MIN(CASE WHEN LOWER(p.product_name) LIKE '%windows%'
                          THEN p.retail_price END)                         AS windows_usd
-
-            FROM azure_prices p
-            WHERE
-                p.arm_region_name = $1
+            FROM all_skus a
+            LEFT JOIN azure_prices p
+                ON p.sku_name = a.sku_name
+                AND p.arm_region_name = $1
                 AND p.currency_code = 'USD'
                 AND p.is_active = TRUE
                 AND p.service_name = 'Virtual Machines'
                 AND p.type = 'Consumption'
-                -- Exclude Spot and Low Priority using LOWER() LIKE (index-safe)
-                AND LOWER(p.sku_name) NOT LIKE '%spot%'
-                AND LOWER(p.sku_name) NOT LIKE '%low priority%'
-                ${searchClause}
-            GROUP BY p.sku_name
-            ORDER BY p.sku_name ASC
+            GROUP BY a.sku_name
+            ORDER BY a.sku_name ASC
         `;
 
+        console.log('VM-LIST QUERY ARGS:', args, 'searchClause:', searchClause);
         const result = await query(sql, args);
 
-        // ── 3. Merge DB rows with in-memory spec map ─────────────────
-        //    O(1) per row — no additional DB query needed for specs.
+        // ── 3. Map DB rows ──────────────────────────────────────────
         const items = result.rows.map(row => {
-            // Normalise: DB may store "D4s v3" → we want "Standard_D4s_v3"
-            const skuName = row.sku_key;  // already computed in SQL
-            const spec = lookupSpec(skuName);  // O(1) Map lookup
+            const skuName = row.sku_key;
 
             // Apply currency rate (multiply base USD price)
             const linuxPrice = row.linux_usd != null ? +(row.linux_usd * rate).toFixed(6) : null;
@@ -581,68 +413,21 @@ app.get('/api/vm-list', async (req, res) => {
                 skuName,
                 region,
                 currency: currency.toUpperCase(),
-
-                // Prices (converted to requested currency)
                 linuxPrice,
                 windowsPrice,
-
-                // Hardware specs — null fields mean "not in vm_specs.json yet"
-                specs: spec ? {
-                    vCpus: spec.vCpus,
-                    memoryGib: spec.memoryGib,
-                    type: spec.type,
-                    architecture: spec.architecture,
-                    hyperVGen: spec.hyperVGen,
-                    acus: spec.acus,
-                    gpus: spec.gpus,
-                    gpuType: spec.gpuType || null,
-                    gpuMemGib: spec.gpuMemGib || null,
-                    maxNics: spec.maxNics,
-                    rdmaEnabled: spec.rdmaEnabled,
-                    acceleratedNet: spec.acceleratedNet,
-                    osDiskSizeGib: spec.osDiskSizeGib,
-                    resDiskSizeGib: spec.resDiskSizeGib,
-                    maxDataDisks: spec.maxDataDisks,
-                    premiumDisk: spec.premiumDisk,
-                    uncachedIops: spec.uncachedIops,
-                    uncachedMbps: spec.uncachedMbps,
-                } : null
+                specs: null
             };
         });
 
-        // ── 3.5. Apply Hardware Filters & Paginate ─────────────────────
-        let filteredItems = items;
-
-        const minV = parseFloat(minVcpu);
-        const maxV = parseFloat(maxVcpu);
-        const minM = parseFloat(minMemory);
-        const maxM = parseFloat(maxMemory);
-
-        const hasFilter = !isNaN(minV) || !isNaN(maxV) || !isNaN(minM) || !isNaN(maxM);
-
-        if (hasFilter) {
-            filteredItems = items.filter(item => {
-                const spec = item.specs;
-                if (!spec) return false;
-
-                if (!isNaN(minV) && spec.vCpus < minV) return false;
-                if (!isNaN(maxV) && spec.vCpus > maxV) return false;
-                if (!isNaN(minM) && spec.memoryGib < minM) return false;
-                if (!isNaN(maxM) && spec.memoryGib > maxM) return false;
-
-                return true;
-            });
-        }
-
-        const paginatedItems = filteredItems.slice(safeOffset, safeOffset + safeLimit);
+        const paginatedItems = items.slice(safeOffset, Math.min(items.length, safeOffset + safeLimit));
 
         // ── 4. Return Paginated Data ─────────────────────────────────
         res.json({
             region,
             currency: currency.toUpperCase(),
             exchangeRate: rate,
-            specsLoaded: specMap.size,   // how many spec entries are in memory
-            count: filteredItems.length,
+            specsLoaded: 0,
+            count: items.length,
             limit: safeLimit,
             offset: safeOffset,
             items: paginatedItems
