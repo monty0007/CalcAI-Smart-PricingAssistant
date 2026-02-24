@@ -257,22 +257,28 @@ export default function ServiceConfigModal({ service, onClose }) {
 
         // Base infrastructure cost (strip OS cost from PAYG if applicable)
         const computePayg = vmMode && osCost.extra > 0 ? Math.max(0, payg - osCost.extra) : payg;
+        let basePrice = computePayg;
 
-        if (pricingModel === 'payg') return computePayg;
-
-        // Savings plans (estimated discount) apply to base compute
-        const sp = SAVINGS_PLANS.find(s => s.id === pricingModel);
-        if (sp) return computePayg * (1 - sp.discount);
-
-        // Reservations (real data) only cover base compute
-        if (pricingModel === 'r1y' && reservationPrices.r1y) {
-            return reservationPrices.r1y.retailPrice / (365 * 24); // yearly price to hourly
+        if (pricingModel === 'payg') {
+            basePrice = computePayg;
+        } else {
+            // Savings plans (estimated discount) apply to base compute
+            const sp = SAVINGS_PLANS.find(s => s.id === pricingModel);
+            if (sp) {
+                basePrice = computePayg * (1 - sp.discount);
+            } else if (pricingModel === 'r1y' && reservationPrices.r1y) {
+                basePrice = reservationPrices.r1y.retailPrice / (365 * 24); // yearly price to hourly
+            } else if (pricingModel === 'r3y' && reservationPrices.r3y) {
+                basePrice = reservationPrices.r3y.retailPrice / (3 * 365 * 24);
+            }
         }
-        if (pricingModel === 'r3y' && reservationPrices.r3y) {
-            return reservationPrices.r3y.retailPrice / (3 * 365 * 24);
+
+        // Add back OS cost if NOT using hybrid benefit
+        if (vmMode && osCost.extra > 0 && !hybridBenefit) {
+            return basePrice + osCost.extra;
         }
 
-        return computePayg;
+        return basePrice;
     }
 
     function getUpfrontCost() {
@@ -295,10 +301,7 @@ export default function ServiceConfigModal({ service, onClose }) {
         return Math.max(0, base) * quantity;
     })();
 
-    const osMonthly = (() => {
-        if (!vmMode || hybridBenefit) return 0;
-        return osCost.extra * quantity * hoursPerMonth;
-    })();
+    const osMonthly = 0; // OS cost is now folded directly into getComputeHourlyPrice()
 
     const diskMonthly = (() => {
         if (!selectedDisk || diskCount <= 0) return 0;
@@ -315,7 +318,7 @@ export default function ServiceConfigModal({ service, onClose }) {
         return cheapest ? cheapest.retailPrice * billableGB : 0;
     })();
 
-    const totalMonthly = computeMonthly + osMonthly + diskMonthly + bandwidthMonthly;
+    const totalMonthly = computeMonthly + diskMonthly + bandwidthMonthly;
 
     // ── Disk options filtered by tier ────────────────
     const filteredDisks = useMemo(() => {
@@ -357,22 +360,7 @@ export default function ServiceConfigModal({ service, onClose }) {
             hoursPerMonth,
         });
 
-        // OS cost (if applicable and not hybrid benefit)
-        if (vmMode && osCost.extra > 0 && !hybridBenefit) {
-            items.push({
-                serviceName: 'OS License',
-                productName: `${osCost.os} License`,
-                skuName: selectedItem.skuName,
-                meterName: `${osCost.os} OS`,
-                retailPrice: osCost.extra,
-                unitOfMeasure: '1 Hour',
-                armRegionName: selectedItem.armRegionName,
-                location: selectedItem.location,
-                currencyCode: selectedItem.currencyCode,
-                quantity,
-                hoursPerMonth,
-            });
-        }
+        // OS cost is now inherently added to the Compute item above if applicable (hybridBenefit toggled false).
 
         // Managed Disks
         if (selectedDisk && diskCount > 0) {
@@ -598,20 +586,20 @@ export default function ServiceConfigModal({ service, onClose }) {
                         {/* ── Section 5: OS Licensing ──────────── */}
                         {selectedItem && vmMode && osCost.os !== 'Linux' && (
                             <div className="modal-section">
-                                <h4>OS License ({osCost.os})</h4>
-                                <div className="os-license-card">
-                                    <div className="os-license-row">
-                                        <span>License included</span>
-                                        <span className="os-price">{formatPrice(osCost.extra * quantity * hoursPerMonth, currency)}/mo</span>
-                                    </div>
-                                    <label className="hybrid-toggle">
-                                        <input type="checkbox" checked={hybridBenefit}
-                                            onChange={e => setHybridBenefit(e.target.checked)} />
-                                        <span className="toggle-switch"></span>
-                                        <span className="toggle-label">
-                                            Azure Hybrid Benefit
-                                            <span className="toggle-hint">Use existing license — OS cost removed</span>
-                                        </span>
+                                <h4>OS ({osCost.os})</h4>
+                                <div className="savings-options">
+                                    <label className={`savings-option ${!hybridBenefit ? 'selected' : ''}`}>
+                                        <input type="radio" checked={!hybridBenefit} onChange={() => setHybridBenefit(false)} />
+                                        <div className="savings-label">
+                                            <span>License included</span>
+                                            <span className="savings-tag">+{formatPrice(osCost.extra * quantity * hoursPerMonth, currency)}/mo</span>
+                                        </div>
+                                    </label>
+                                    <label className={`savings-option ${hybridBenefit ? 'selected' : ''}`}>
+                                        <input type="radio" checked={hybridBenefit} onChange={() => setHybridBenefit(true)} />
+                                        <div className="savings-label">
+                                            <span>Azure Hybrid Benefit</span>
+                                        </div>
                                     </label>
                                 </div>
                             </div>
@@ -693,9 +681,9 @@ export default function ServiceConfigModal({ service, onClose }) {
                                         <span>{formatPrice(computeMonthly, currency)}</span>
                                     </div>
                                     {vmMode && osCost.os !== 'Linux' && (
-                                        <div className="cost-line">
-                                            <span>OS ({osCost.os}){hybridBenefit ? ' — Hybrid Benefit' : ''}</span>
-                                            <span>{hybridBenefit ? formatPrice(0, currency) : formatPrice(osMonthly, currency)}</span>
+                                        <div className="cost-line" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                            <span>License Option</span>
+                                            <span>{hybridBenefit ? 'Azure Hybrid Benefit' : 'License included'}</span>
                                         </div>
                                     )}
                                     {diskCount > 0 && (
