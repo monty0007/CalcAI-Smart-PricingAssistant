@@ -188,8 +188,14 @@ export default function CalculatorPage() {
                 )}
             </main>
 
-            {/* Estimate Panel */}
-            <EstimatePanel />
+            {/* Estimate Panel (Responsive) */}
+            <div className={`estimate-sidebar-wrapper ${showMobileEstimate ? 'mobile-open' : ''}`}>
+                <div
+                    className="mobile-estimate-backdrop"
+                    onClick={() => setShowMobileEstimate(false)}
+                />
+                <EstimatePanel onClose={() => setShowMobileEstimate(false)} />
+            </div>
 
             {/* Mobile FAB */}
             <button

@@ -22,6 +22,13 @@ app.use('/api/auth', authRouter);
 app.use('/api/tools', toolsRouter);
 app.use('/api/chats', chatsRouter);
 
+app.post('/api/logs', (req, res) => {
+    const { message, data } = req.body;
+    console.log(`\n=== [AI LOG] ${message} ===`);
+    if (data) console.log(JSON.stringify(data, null, 2));
+    res.sendStatus(200);
+});
+
 /**
  * GET /api/prices
  * Query cached pricing data
@@ -630,3 +637,5 @@ start().catch(err => {
     console.error('Fatal startup error:', err);
     process.exit(1);
 });
+
+

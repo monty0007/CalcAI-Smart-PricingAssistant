@@ -17,6 +17,7 @@ import toast from 'react-hot-toast';
 const AI_ENDPOINT = import.meta.env.VITE_OPENAI_ENDPOINT;
 const AI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 const AI_MODEL = import.meta.env.VITE_OPENAI_MODEL || 'gpt-4o-mini';
+const LOG_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api') + '/logs';
 
 // ── Suggested prompts ────────────────────────────────────────────────
 const SUGGESTED_PROMPTS = [
@@ -61,83 +62,158 @@ function parseQuery(query) {
 }
 
 // ── AI call ──────────────────────────────────────────────────────────
-async function callAI(messages, pricingContext, depth = 0) {
+async function callAI(messages, pricingContext, currency, depth = 0) {
     if (!AI_ENDPOINT || !AI_API_KEY) return null;
     if (depth > 2) return "I'm sorry, I encountered too many tool operations to process this effectively.";
 
     const systemMsg = {
         role: 'system',
-        content: `You are a strict Azure Pricing Assistant. You must ONLY answer questions related to Azure services, cloud computing, and pricing. If the user asks about anything else, politely decline and say you can only help with Azure pricing.
+        content: `You are an expert Azure Pricing Assistant. You understand the Azure Pricing Calculator export format.
 
-CRITICAL RULES FOR PRICING:
-1. You MUST ONLY use the real-time pricing data provided below OR data retrieved via the \`calculate_estimate\` tool to answer pricing queries.
-2. DO NOT use your pre-trained knowledge or internet data to guess prices.
-3. If the provided data or tool output does not contain the answers, you must say: "I don't have the exact pricing for that in my current database context."
-4. NEVER ask the user for permission to use a tool. If a tool can help retrieve the requested pricing data, execute the tool IMMEDIATELY.
+## CORE RULES
+1. NEVER guess prices. Always call the calculate_estimate tool.
+2. When you receive a multi-service workload query, call calculate_estimate ONCE with ALL services as separate items[]. Never split into multiple calls.
+3. NEVER ask for confirmation. Parse and call the tool IMMEDIATELY.
+4. After tool returns data, respond with a Markdown pricing table.
 
-When pricing data is provided either via context or tool call, you MUST output the data as a clean Markdown table summarizing the components.
-The table must include these exact columns:
-| Service / SKU | Product | Cost | 
+## STRUCTURED WORKLOAD FORMAT
+Users may paste workloads in a 4-line-per-service format (repeating blocks):
+Line 1: Service Category (Compute, Storage, Networking, Security, DevOps)
+Line 2: Service Type     (Virtual Machines, Storage Accounts, Bandwidth, IP Addresses, Microsoft Defender for Cloud, Azure Monitor)
+Line 3: Custom Name      (user label like "App server", "Database server - OS disk")
+Line 4: Description      (detailed config string)
 
-Do not write long paragraphs or conversational filler. Simply provide the table and a one-sentence summary or recommendation or the Grand Total calculated by the tool.
-${pricingContext ? `\n\n=== REAL-TIME PRICING DATA FROM DATABASE ===\n${pricingContext}\n==============================================` : ''}`
+Parse each 4-line block into one item in the items[] array.
+
+## PARSING RULES BY SERVICE TYPE
+
+### Virtual Machines (category: Compute, service: Virtual Machines)
+- sku: extract from description e.g. "D8s v5", "D4s_v3", "B2ms"
+- os: "Windows server" -> "Windows", else "Linux"
+- reservation: "1 year reserved" -> "1 Year", "3 year" -> "3 Year", else ""
+- region: extract region name, default "centralindia"
+- quantity: number before SKU e.g. "1 D8s v5" -> 1
+
+### Managed Disks (category: Storage, service: Managed Disks)
+- diskType: extract "E10", "E15", "E20", "E30", "S4", "S10", "P10" etc from Disk Type field
+- diskTier: "Standard SSD", "Premium SSD", "Standard HDD"
+- diskRedundancy: "LRS", "ZRS", "GRS" 
+- quantity: number before "Disks" in description
+
+### Bandwidth (category: Networking, service: Bandwidth)
+- dataTransferGB: extract GB number e.g. "150 GB outbound" -> 150
+- transferType: "Internet egress" or "Inter Region"
+
+### IP Addresses (category: Networking, service: IP Addresses)
+- ipType: "Static", "Dynamic"
+- quantity: count of IPs
+
+### Microsoft Defender for Cloud (category: Security)
+- serverCount: number of servers
+
+### Azure Monitor (category: DevOps, service: Azure Monitor)
+- dataIngestionGB: daily ingestion GB
+- tier: "Basic" or "Analytics"
+
+## OUTPUT FORMAT (after tool call returns)
+Use this exact Markdown table:
+
+| Service | Description | Monthly Cost (${currency}) |
+|---------|-------------|---------------------------|
+| ... | ... | ... |
+
+**Grand Total: X.XX ${currency}/month**
+
+Brief 1-line summary of the infrastructure.
+
+${pricingContext ? `=== LIVE PRICING DATA ===\n${pricingContext}\n========================` : ''}
+User region context: extract from message. Default: centralindia.
+Target Currency: ${currency}. The tool returns values already in ${currency}. NEVER reconvert.`
     };
 
     try {
+        const payload = {
+            model: AI_MODEL,
+            messages: [systemMsg, ...messages],
+            max_tokens: 2500,
+            temperature: 0.3,
+            tools: [
+                {
+                    type: "function",
+                    function: {
+                        name: "calculate_estimate",
+                        description: `Calculate monthly Azure costs. Call IMMEDIATELY for any pricing request or when user pastes a workload. Parse ALL service blocks into items[] in ONE single call.`,
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                items: {
+                                    type: "array",
+                                    description: "One entry per service block in the workload",
+                                    items: {
+                                        type: "object",
+                                        properties: {
+                                            category: { type: "string", description: "Compute, Storage, Networking, Security, DevOps" },
+                                            service: { type: "string", description: "Virtual Machines, Managed Disks, Bandwidth, IP Addresses, Microsoft Defender for Cloud, Azure Monitor" },
+                                            name: { type: "string", description: "User-defined label for this line item" },
+                                            configuration: {
+                                                type: "object",
+                                                properties: {
+                                                    sku: { type: "string", description: "VM SKU e.g. 'D8s v5', 'B2ms'" },
+                                                    os: { type: "string", description: "'Windows' or 'Linux'" },
+                                                    tier: { type: "string", description: "'Standard', 'Premium', 'Basic'" },
+                                                    reservation: { type: "string", description: "'1 Year', '3 Year', or '' for PAYG" },
+                                                    quantity: { type: "number", description: "Number of instances / disks / IPs" },
+                                                    region: { type: "string", description: "Azure region slug e.g. centralindia, eastus, eastasia" },
+                                                    diskType: { type: "string", description: "Managed Disk SKU: E10, E15, E20, E30, S4, P10 etc." },
+                                                    diskTier: { type: "string", description: "'Standard SSD', 'Premium SSD', 'Standard HDD'" },
+                                                    diskRedundancy: { type: "string", description: "'LRS', 'ZRS', 'GRS'" },
+                                                    dataTransferGB: { type: "number", description: "GB of outbound data transfer" },
+                                                    transferType: { type: "string", description: "'Internet egress' or 'Inter Region'" },
+                                                    ipType: { type: "string", description: "'Static' or 'Dynamic'" },
+                                                    serverCount: { type: "number", description: "Number of Defender-protected servers" }
+                                                }
+                                            }
+                                        },
+                                        required: ["category", "service"]
+                                    }
+                                }
+                            },
+                            required: ["items"]
+                        }
+                    }
+                }
+            ],
+            tool_choice: "auto"
+        };
+
+        fetch(LOG_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: 'REQUEST TO OPENAI', data: payload })
+        }).catch(() => { });
+
         const res = await fetch(AI_ENDPOINT, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${AI_API_KEY}`,
             },
-            body: JSON.stringify({
-                model: AI_MODEL,
-                messages: [systemMsg, ...messages],
-                max_tokens: 1500,
-                temperature: 0.7,
-                tools: [
-                    {
-                        type: "function",
-                        function: {
-                            name: "calculate_estimate",
-                            description: "Calculates total aggregate cost for one or more Azure infrastructure components. MUST be executed IMMEDIATELY without asking the user for permission. Not split requests. Not perform search-based lookups.",
-                            parameters: {
-                                type: "object",
-                                properties: {
-                                    items: {
-                                        type: "array",
-                                        items: {
-                                            type: "object",
-                                            properties: {
-                                                category: { type: "string" },
-                                                service: { type: "string" },
-                                                name: { type: "string" },
-                                                configuration: {
-                                                    type: "object",
-                                                    properties: {
-                                                        sku: { type: "string", description: "The exact SKU Name, e.g. D8s_v5 or D8s v5" },
-                                                        os: { type: "string", description: "OS type like Windows or Linux" },
-                                                        tier: { type: "string", description: "Standard, Basic, Premium etc." },
-                                                        reservation: { type: "string", description: "Any reservation term, e.g. 1 Year" },
-                                                        quantity: { type: "number", description: "Quantity of instances" }
-                                                    }
-                                                }
-                                            },
-                                            required: ["category", "service"]
-                                        }
-                                    }
-                                },
-                                required: ["items"]
-                            }
-                        }
-                    }
-                ],
-                tool_choice: "auto"
-            }),
+            body: JSON.stringify(payload),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+            console.error("AI API Error:", res.status, await res.text());
+            return null;
+        }
 
         const data = await res.json();
+
+        // Log response to backend terminal
+        fetch(LOG_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: 'RESPONSE FROM OPENAI', data })
+        }).catch(() => { });
+
         const responseMessage = data.choices?.[0]?.message;
         if (!responseMessage) return null;
 
@@ -146,7 +222,7 @@ ${pricingContext ? `\n\n=== REAL-TIME PRICING DATA FROM DATABASE ===\n${pricingC
             if (toolCall.function.name === 'calculate_estimate') {
                 try {
                     const args = JSON.parse(toolCall.function.arguments);
-                    const backendResult = await calculateEstimate(args.items);
+                    const backendResult = await calculateEstimate(args.items, currency);
 
                     messages.push(responseMessage);
                     messages.push({
@@ -156,7 +232,7 @@ ${pricingContext ? `\n\n=== REAL-TIME PRICING DATA FROM DATABASE ===\n${pricingC
                         content: JSON.stringify(backendResult)
                     });
 
-                    return await callAI(messages, pricingContext, depth + 1);
+                    return await callAI(messages, pricingContext, currency, depth + 1);
                 } catch (e) {
                     console.error("Tool execution error", e);
                     messages.push(responseMessage);
@@ -166,7 +242,7 @@ ${pricingContext ? `\n\n=== REAL-TIME PRICING DATA FROM DATABASE ===\n${pricingC
                         name: toolCall.function.name,
                         content: JSON.stringify({ error: "Failed to map parameters natively" })
                     });
-                    return await callAI(messages, pricingContext, depth + 1);
+                    return await callAI(messages, pricingContext, currency, depth + 1);
                 }
             }
         }
@@ -294,6 +370,7 @@ export default function AiPage() {
 
     const [chatList, setChatList] = useState([]);
     const [currentChatId, setCurrentChatId] = useState(null);
+    const [showSidebar, setShowSidebar] = useState(false);
 
     const initialMessage = {
         id: 0,
@@ -482,13 +559,13 @@ export default function AiPage() {
             // Build AI or template response
             let aiText = null;
             if (hasAI) {
-                const aiMessages = messages
-                    .filter(m => m.type === 'text')
+                // Include full conversation history. Loaded chats may not have a 'type'
+                // field, so we must not filter by type. Only exclude the initial greeting (id===0).
+                const aiMessages = currentMsgs
+                    .filter(m => m.id !== 0 && (m.role === 'user' || m.role === 'bot'))
+                    .slice(-60)
                     .map(m => ({ role: m.role === 'bot' ? 'assistant' : 'user', content: m.content }));
-                // Grab the slice here to guarantee tool calls aren't clipped
-                const sliceFocus = aiMessages.slice(-8);
-                sliceFocus.push({ role: 'user', content: query });
-                aiText = await callAI(sliceFocus, pricingContext);
+                aiText = await callAI(aiMessages, pricingContext, currency);
             }
 
             let responseText = '';
@@ -554,7 +631,7 @@ export default function AiPage() {
     return (
         <div className="ai-page">
             {/* ── Left Sidebar (History) ───────────────────────── */}
-            <div className="ai-sidebar">
+            <div className={`ai-sidebar ${showSidebar ? 'mobile-open' : ''}`}>
                 <div className="ai-sidebar-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <button className="ai-back-btn" onClick={() => navigate(-1)} title="Back to Dashboard">
                         <ArrowLeft size={18} />
@@ -580,12 +657,21 @@ export default function AiPage() {
                 </div>
             </div>
 
+            {/* Mobile Sidebar overlay backdrop */}
+            {showSidebar && (
+                <div
+                    className="mobile-estimate-backdrop"
+                    style={{ zIndex: 90 }}
+                    onClick={() => setShowSidebar(false)}
+                />
+            )}
+
             {/* ── Main Chat Area ──────────────────────────────── */}
             <div className="ai-main">
                 {/* ── Header ──────────────────────────────────────── */}
                 <div className="ai-header-wrapper">
                     <div className="ai-header">
-                        <div className="ai-header__icon">
+                        <div className="ai-header__icon" style={{ cursor: 'pointer' }} onClick={() => setShowSidebar(!showSidebar)}>
                             <Sparkles size={20} />
                         </div>
                         <div>

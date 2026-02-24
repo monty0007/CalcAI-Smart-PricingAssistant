@@ -251,12 +251,12 @@ export async function fetchVmPricingCompare(params) {
 /**
  * Sends a parsed workload stack to the backend /tools/calculate_estimate tool via API
  */
-export async function calculateEstimate(items) {
+export async function calculateEstimate(items, currency = 'USD') {
   if (!USE_BACKEND) return { breakdown: [], total: 0, currency: 'USD' };
   const response = await fetch(`${BASE_URL}/tools/calculate_estimate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, currency }),
   });
   if (!response.ok) throw new Error(`Calculate estimate tool error: ${response.status}`);
   return response.json();

@@ -255,13 +255,16 @@ export default function ServiceConfigModal({ service, onClose }) {
         if (!selectedItem) return 0;
         const payg = selectedItem.retailPrice;
 
-        if (pricingModel === 'payg') return payg;
+        // Base infrastructure cost (strip OS cost from PAYG if applicable)
+        const computePayg = vmMode && osCost.extra > 0 ? Math.max(0, payg - osCost.extra) : payg;
 
-        // Savings plans (estimated discount)
+        if (pricingModel === 'payg') return computePayg;
+
+        // Savings plans (estimated discount) apply to base compute
         const sp = SAVINGS_PLANS.find(s => s.id === pricingModel);
-        if (sp) return payg * (1 - sp.discount);
+        if (sp) return computePayg * (1 - sp.discount);
 
-        // Reservations (real data)
+        // Reservations (real data) only cover base compute
         if (pricingModel === 'r1y' && reservationPrices.r1y) {
             return reservationPrices.r1y.retailPrice / (365 * 24); // yearly price to hourly
         }
@@ -269,7 +272,7 @@ export default function ServiceConfigModal({ service, onClose }) {
             return reservationPrices.r3y.retailPrice / (3 * 365 * 24);
         }
 
-        return payg;
+        return computePayg;
     }
 
     function getUpfrontCost() {
@@ -285,7 +288,7 @@ export default function ServiceConfigModal({ service, onClose }) {
     // ── Monthly costs ────────────────────────────────
     const computeMonthly = (() => {
         const hourly = getComputeHourlyPrice();
-        const base = vmMode && osCost.extra > 0 ? hourly - osCost.extra : hourly;
+        const base = hourly;
         const unit = (selectedItem?.unitOfMeasure || '').toLowerCase();
         if (unit.includes('hour')) return Math.max(0, base) * quantity * hoursPerMonth;
         if (unit.includes('month')) return Math.max(0, base) * quantity;
@@ -345,7 +348,7 @@ export default function ServiceConfigModal({ service, onClose }) {
             productName: selectedItem.productName,
             skuName: selectedItem.skuName,
             meterName: `${selectedItem.meterName} (${pricingModel === 'payg' ? 'PAYG' : pricingModel.toUpperCase()})`,
-            retailPrice: getComputeHourlyPrice() - (vmMode ? osCost.extra : 0),
+            retailPrice: getComputeHourlyPrice(),
             unitOfMeasure: selectedItem.unitOfMeasure,
             armRegionName: selectedItem.armRegionName,
             location: selectedItem.location,
