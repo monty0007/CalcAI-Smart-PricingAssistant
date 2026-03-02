@@ -122,35 +122,29 @@ function Navbar() {
   );
 }
 
-import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import MyEstimates from './pages/MyEstimates';
 import { Toaster } from 'react-hot-toast';
 
-// Placeholder Client ID - User must update .env
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
-
 function App() {
   return (
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <AuthProvider>
-        <BrowserRouter>
-          <EstimateProvider>
-            <Toaster position="bottom-right" />
-            <Navbar />
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/dashboard" element={<CalculatorPage />} />
-              <Route path="/vms" element={<VmComparisonPage />} />
-              <Route path="/ai" element={<AiPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/my-estimates" element={<MyEstimates />} />
-            </Routes>
-          </EstimateProvider>
-        </BrowserRouter>
-      </AuthProvider>
-    </GoogleOAuthProvider>
+    <AuthProvider>
+      <BrowserRouter>
+        <EstimateProvider>
+          <Toaster position="bottom-right" />
+          <Navbar />
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/dashboard" element={<CalculatorPage />} />
+            <Route path="/vms" element={<VmComparisonPage />} />
+            <Route path="/ai" element={<AiPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/my-estimates" element={<MyEstimates />} />
+          </Routes>
+        </EstimateProvider>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

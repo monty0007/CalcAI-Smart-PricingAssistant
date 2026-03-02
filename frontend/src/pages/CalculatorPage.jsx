@@ -1,21 +1,25 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Search, Plus, ShoppingCart, Package, Save } from 'lucide-react';
+import { Search, Plus, ShoppingCart, Package, Save, BookOpen, AlertCircle, Check, X } from 'lucide-react';
 import { SERVICE_FAMILIES, POPULAR_SERVICES, ICON_MAP } from '../data/serviceCatalog';
 import { useEstimate } from '../context/EstimateContext';
 import { useAuth } from '../context/AuthContext';
 import ServiceConfigModal from '../components/ServiceConfigModal';
 import EstimatePanel from '../components/EstimatePanel';
+import QuotationsDrawer from '../components/QuotationsDrawer';
+import '../index.css';
 
 export default function CalculatorPage() {
     const [selectedFamily, setSelectedFamily] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [configService, setConfigService] = useState(null);
-    const { items, totalMonthlyCost, currency } = useEstimate();
+    const { items, totalMonthlyCost, currency, activeEstimateId, clearAll } = useEstimate();
     const { user, token } = useAuth();
     const [showMobileEstimate, setShowMobileEstimate] = useState(false);
+    const [quotDrawerOpen, setQuotDrawerOpen] = useState(false);
 
-    // Save Modal State
+    // Modals
     const [showSaveModal, setShowSaveModal] = useState(false);
+    const [showNewConfirm, setShowNewConfirm] = useState(false);
     const [estimateName, setEstimateName] = useState('');
 
     const handleSaveEstimate = async () => {
@@ -46,6 +50,19 @@ export default function CalculatorPage() {
         } catch (err) {
             alert(err.message);
         }
+    };
+
+    const handleNewEstimate = () => {
+        if (items.length > 0) {
+            setShowNewConfirm(true);
+        } else {
+            clearAll();
+        }
+    };
+
+    const confirmNewEstimate = () => {
+        clearAll();
+        setShowNewConfirm(false);
     };
 
     const filteredServices = useMemo(() => {
@@ -132,14 +149,23 @@ export default function CalculatorPage() {
 
                 <div className="services-header">
                     <h2>{selectedFamily || (searchQuery ? 'Search Results' : 'Featured Services')}</h2>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {user && (
+                            <button
+                                className="btn-secondary"
+                                onClick={() => setQuotDrawerOpen(true)}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.85rem' }}
+                                title="My Quotations"
+                            >
+                                <BookOpen size={16} /> <span className="hide-mobile">Quotations</span>
+                            </button>
+                        )}
                         <button
-                            className="btn-secondary"
-                            onClick={() => setShowSaveModal(true)}
-                            disabled={items.length === 0}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.85rem' }}
+                            className="btn-outline"
+                            onClick={handleNewEstimate}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.85rem', border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer' }}
                         >
-                            <Save size={16} /> Save Estimate
+                            <Plus size={16} /> <span className="hide-mobile">New Estimate</span>
                         </button>
                         <span className="count">{filteredServices.length} services</span>
                     </div>
@@ -188,13 +214,16 @@ export default function CalculatorPage() {
                 )}
             </main>
 
-            {/* Estimate Panel (Responsive) */}
             <div className={`estimate-sidebar-wrapper ${showMobileEstimate ? 'mobile-open' : ''}`}>
                 <div
                     className="mobile-estimate-backdrop"
                     onClick={() => setShowMobileEstimate(false)}
                 />
-                <EstimatePanel onClose={() => setShowMobileEstimate(false)} />
+                <EstimatePanel
+                    onClose={() => setShowMobileEstimate(false)}
+                    quotDrawerOpen={quotDrawerOpen}
+                    setQuotDrawerOpen={setQuotDrawerOpen}
+                />
             </div>
 
             {/* Mobile FAB */}
@@ -236,6 +265,31 @@ export default function CalculatorPage() {
                     </div>
                 </div>
             )}
+
+            {/* New Estimate Confirm Modal */}
+            {showNewConfirm && (
+                <div className="modal-overlay">
+                    <div className="modal-content" style={{ maxWidth: 400 }}>
+                        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+                            <AlertCircle size={24} color="#e74c3c" />
+                            <div>
+                                <h3 style={{ margin: 0, marginBottom: '4px' }}>Clear current estimate?</h3>
+                                <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                                    This will clear your current active estimate ({items.length} items) and start a new one. Unsaved changes will be lost.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="modal-actions">
+                            <button className="btn-secondary" onClick={() => setShowNewConfirm(false)}>Cancel</button>
+                            <button className="btn-primary" onClick={confirmNewEstimate} style={{ background: '#e74c3c', color: 'white', border: 'none' }}>
+                                Clear & Start New
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <QuotationsDrawer open={quotDrawerOpen} onClose={() => setQuotDrawerOpen(false)} />
         </div>
     );
 }

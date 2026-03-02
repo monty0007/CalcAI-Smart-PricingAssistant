@@ -1,115 +1,106 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { googleLogout } from '@react-oauth/google';
-import { jwtDecode } from 'jwt-decode';
-import { PublicClientApplication } from '@azure/msal-browser';
+import {
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    signInWithPopup,
+    GoogleAuthProvider,
+    signOut,
+    updateProfile,
+} from 'firebase/auth';
+import { auth } from '../firebase';
 
 const AuthContext = createContext();
-
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const googleProvider = new GoogleAuthProvider();
 
-// ── Microsoft MSAL config ───────────────────────────────────────────
-const MSAL_CLIENT_ID = import.meta.env.VITE_MSAL_CLIENT_ID;
-const MSAL_TENANT_ID = import.meta.env.VITE_MSAL_TENANT_ID || 'common';
-
-let msalInstance = null;
-if (MSAL_CLIENT_ID) {
-    const msalConfig = {
-        auth: {
-            clientId: MSAL_CLIENT_ID,
-            authority: `https://login.microsoftonline.com/${MSAL_TENANT_ID}`,
-            redirectUri: window.location.origin,
-        },
-        cache: { cacheLocation: 'sessionStorage' },
-    };
-    msalInstance = new PublicClientApplication(msalConfig);
-    msalInstance.initialize().catch(() => null);
+/**
+ * After any Firebase sign-in, upsert the user in our PostgreSQL DB
+ * and get back their stored preferences (region, currency).
+ */
+async function syncUserWithBackend(firebaseUser) {
+    const idToken = await firebaseUser.getIdToken(/* forceRefresh */ false);
+    try {
+        const res = await fetch(`${API_URL}/auth/firebase`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+                name: firebaseUser.displayName || firebaseUser.email,
+                email: firebaseUser.email,
+            }),
+        });
+        if (res.ok) return await res.json(); // returns { user: { ... } }
+    } catch (err) {
+        console.warn('Backend sync failed (will retry on next sign-in):', err);
+    }
+    return null;
 }
 
 export function AuthProvider({ children }) {
-    const [user, setUser] = useState(null);
-    const [token, setToken] = useState(localStorage.getItem('token'));
+    const [user, setUser] = useState(null);   // merged: firebase + DB prefs
+    const [token, setToken] = useState(null); // Firebase ID token (used as Bearer)
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (token) {
-            try {
-                const decoded = jwtDecode(token);
-                setUser({ ...decoded });
-            } catch (e) {
-                console.error('Invalid token', e);
-                logout();
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            if (firebaseUser) {
+                const idToken = await firebaseUser.getIdToken();
+                setToken(idToken);
+
+                const dbData = await syncUserWithBackend(firebaseUser);
+                setUser({
+                    id: firebaseUser.uid,
+                    uid: firebaseUser.uid,
+                    email: firebaseUser.email,
+                    name: firebaseUser.displayName || firebaseUser.email,
+                    // Merge any stored preferences from our DB
+                    ...(dbData?.user || {}),
+                });
+            } else {
+                setUser(null);
+                setToken(null);
             }
-        }
-        setLoading(false);
-    }, [token]);
+            setLoading(false);
+        });
+        return unsubscribe;
+    }, []);
+
+    // Auto-refresh token before it expires (Firebase tokens last 1 hour)
+    useEffect(() => {
+        if (!auth.currentUser) return;
+        const interval = setInterval(async () => {
+            const freshToken = await auth.currentUser?.getIdToken(true);
+            if (freshToken) setToken(freshToken);
+        }, 50 * 60 * 1000); // refresh every 50 minutes
+        return () => clearInterval(interval);
+    }, [user]);
 
     const login = async (email, password) => {
-        const response = await fetch(`${API_URL}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Login failed');
-        setToken(data.token);
-        localStorage.setItem('token', data.token);
-        setUser(data.user);
+        const result = await signInWithEmailAndPassword(auth, email, password);
+        const idToken = await result.user.getIdToken();
+        setToken(idToken);
     };
 
     const signup = async (email, password, name) => {
-        const response = await fetch(`${API_URL}/auth/signup`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, name }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Signup failed');
-        setToken(data.token);
-        localStorage.setItem('token', data.token);
-        setUser(data.user);
+        const result = await createUserWithEmailAndPassword(auth, email, password);
+        if (name) await updateProfile(result.user, { displayName: name });
+        const idToken = await result.user.getIdToken();
+        setToken(idToken);
     };
 
-    const googleLogin = async (credentialResponse) => {
-        const response = await fetch(`${API_URL}/auth/google`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ credential: credentialResponse.credential }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Google login failed');
-        setToken(data.token);
-        localStorage.setItem('token', data.token);
-        setUser(data.user);
+    const googleLogin = async () => {
+        const result = await signInWithPopup(auth, googleProvider);
+        const idToken = await result.user.getIdToken();
+        setToken(idToken);
     };
 
-    const microsoftLogin = async () => {
-        if (!msalInstance) {
-            throw new Error('Microsoft login is not configured. Add VITE_MSAL_CLIENT_ID to your .env file.');
-        }
-        const loginRequest = { scopes: ['User.Read'] };
-        const result = await msalInstance.loginPopup(loginRequest);
-
-        const response = await fetch(`${API_URL}/auth/microsoft`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ accessToken: result.accessToken }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Microsoft login failed');
-        setToken(data.token);
-        localStorage.setItem('token', data.token);
-        setUser(data.user);
-    };
-
-    const logout = () => {
-        googleLogout();
-        setToken(null);
-        setUser(null);
-        localStorage.removeItem('token');
-    };
+    const logout = () => signOut(auth);
 
     return (
-        <AuthContext.Provider value={{ user, token, loading, login, signup, googleLogin, microsoftLogin, logout }}>
+        <AuthContext.Provider value={{ user, token, loading, login, signup, googleLogin, logout }}>
             {children}
         </AuthContext.Provider>
     );

@@ -323,7 +323,7 @@ body {
 .divider-dark {
   width: 1px;
   height: 28px;
-  background: linear-gradient(to bottom, transparent, rgba(0,149,255,0.3), transparent);
+  background: linear-gradient(to bottom, transparent, rgba(0, 149, 255, 0.3), transparent);
   margin: 0 4px;
 }
 
@@ -382,7 +382,7 @@ body {
 .divider-light {
   width: 1px;
   height: 28px;
-  background: linear-gradient(to bottom, transparent, rgba(0,100,220,0.2), transparent);
+  background: linear-gradient(to bottom, transparent, rgba(0, 100, 220, 0.2), transparent);
   margin: 0 4px;
 }
 
@@ -6082,4 +6082,510 @@ body {
     display: block;
     width: 100%;
   }
+}
+
+/* ─── Quotations Drawer ───────────────────────────────────────────────────── */
+.quot-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1100;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.quot-backdrop.open {
+  display: block;
+  opacity: 1;
+}
+
+.quot-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100dvh;
+  width: 360px;
+  max-width: 95vw;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-primary);
+  z-index: 1101;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.18);
+}
+
+.quot-drawer.open {
+  transform: translateX(0);
+}
+
+.quot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+.quot-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.quot-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  padding: 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.quot-close-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.quot-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px;
+}
+
+.quot-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.quot-empty p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.quot-empty span {
+  font-size: 0.8rem;
+}
+
+/* Skeleton loading */
+.quot-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quot-skeleton {
+  height: 110px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.quot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quot-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.quot-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 12px rgba(0, 120, 212, 0.10);
+}
+
+.quot-card-top {
+  margin-bottom: 4px;
+}
+
+.quot-card-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quot-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.quot-card-meta span {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.quot-card-total {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.quot-card-period {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+.quot-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quot-open-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.quot-open-btn:hover {
+  background: var(--accent-hover, #005a9e);
+}
+
+.quot-open-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.quot-delete-btn {
+  background: none;
+  border: 1px solid var(--border-primary);
+  color: var(--text-muted);
+  padding: 6px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: all 0.15s;
+}
+
+.quot-delete-btn:hover {
+  border-color: #e74c3c;
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.06);
+}
+
+.quot-delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.quot-delete-yes,
+.quot-delete-no {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--border-primary);
+  background: none;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.quot-delete-yes {
+  color: #e74c3c;
+  border-color: #e74c3c;
+}
+
+.quot-delete-yes:hover {
+  background: rgba(231, 76, 60, 0.09);
+}
+
+.quot-delete-no:hover {
+  background: var(--bg-tertiary);
+}
+
+/* ─── Estimate Action Buttons ─────────────────────────────────────────────── */
+.estimate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.est-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  border-radius: 7px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+
+.est-action-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.est-save-btn {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.est-save-btn:hover {
+  background: var(--accent-hover, #005a9e);
+  border-color: var(--accent-hover, #005a9e);
+  color: #fff;
+}
+
+.est-quot-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.est-export-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.est-clear-btn {
+  color: #e74c3c;
+  border-color: rgba(231, 76, 60, 0.35);
+  background: rgba(231, 76, 60, 0.05);
+}
+
+.est-clear-btn:hover {
+  background: rgba(231, 76, 60, 0.12);
+  border-color: #e74c3c;
+}
+
+@media (max-width: 480px) {
+  .est-action-btn {
+    padding: 7px 8px;
+    font-size: 0.75rem;
+  }
+
+  .quot-drawer {
+    width: 100vw;
+  }
+}
+
+/* ─── Auth — Google Sign-In Button ───────────────────────────────────────── */
+.auth-google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  margin-bottom: 4px;
+}
+
+.auth-google-btn:hover:not(:disabled) {
+  border-color: #4285f4;
+  background: rgba(66, 133, 244, 0.06);
+  box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.12);
+}
+
+.auth-google-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ─── Estimate Panel — Active Editing Banner ─────────────────────────────── */
+.active-estimate-banner {
+  background: rgba(0, 120, 212, 0.08);
+  border-bottom: 1px solid var(--border-primary);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.active-estimate-banner strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ─── Quotations Drawer — Rich Cards ─────────────────────────────────────── */
+.quot-card-summary {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin: 10px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.quot-card-summary:hover {
+  border-color: var(--border-primary);
+}
+
+.quot-card-details {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quot-card-detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.quot-card-detail-item .qcd-name {
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 65%;
+}
+
+.quot-card-detail-item .qcd-price {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ─── Inline Confirmation Modals (Load / Delete) ─────────────────────────── */
+.quot-delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-secondary);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-primary);
+}
+
+.quot-delete-confirm span {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-right: 4px;
+}
+
+.quot-delete-yes,
+.quot-delete-no {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.quot-delete-yes {
+  color: var(--accent);
+}
+
+.quot-delete-no {
+  color: var(--text-secondary);
+}
+
+.quot-delete-yes:hover {
+  background: rgba(0, 120, 212, 0.1);
+}
+
+.quot-delete-no:hover {
+  background: var(--bg-tertiary);
+}
+
+.quot-open-btn.primary {
+  background: var(--accent);
+  color: white;
+  border: none;
+}
+
+.quot-open-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
 }

@@ -1,233 +1,103 @@
 import express from 'express';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import { OAuth2Client } from 'google-auth-library';
+import admin from 'firebase-admin';
 import { query } from './db.js';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-prod';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const client = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-/**
- * Middleware to authenticate JWT
- */
-export function authenticateToken(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-    if (!token) return res.sendStatus(401);
-
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.sendStatus(403);
-        req.user = user;
-        next();
+// ── Firebase Admin Init ────────────────────────────────────────────────
+// Initialize only once (guard against hot-reload double-init)
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            // Vite/dotenv escapes \n in the key — normalize it here
+            privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+        }),
     });
 }
 
-/**
- * POST /api/auth/signup
- */
-router.post('/signup', async (req, res) => {
+// ── authenticateToken Middleware ──────────────────────────────────────
+// Verifies the Firebase ID token sent as "Authorization: Bearer <token>"
+export async function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const idToken = authHeader && authHeader.split(' ')[1];
+
+    if (!idToken) return res.sendStatus(401);
+
     try {
-        const { email, password, name } = req.body;
-        if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        try {
-            const result = await query(
-                `INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name`,
-                [email, hashedPassword, name]
-            );
-            const user = result.rows[0];
-            const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-            res.json({
-                token,
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    preferred_region: user.preferred_region,
-                    preferred_currency: user.preferred_currency
-                }
-            });
-        } catch (err) {
-            if (err.code === '23505') { // Unique violation
-                return res.status(409).json({ error: 'Email already registered' });
-            }
-            throw err;
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        // decoded.uid = Firebase UID, decoded.email = user's email
+        // We look up the internal DB user_id to keep all FK references consistent
+        const result = await query(
+            'SELECT id, email, name, preferred_region, preferred_currency FROM users WHERE firebase_uid = $1',
+            [decoded.uid]
+        );
+        if (result.rows.length === 0) {
+            // User exists in Firebase but hasn't synced to DB yet — return 401
+            // The frontend's AuthContext will call /api/auth/firebase to upsert them first
+            return res.status(401).json({ error: 'User not synced. Please sign in again.' });
         }
+        req.user = { ...result.rows[0], uid: decoded.uid };
+        next();
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Firebase token verification failed:', err.code || err.message);
+        return res.sendStatus(403);
+    }
+}
+
+// ── POST /api/auth/firebase ───────────────────────────────────────────
+// Called by the frontend after every Firebase sign-in to upsert the user
+// in our PostgreSQL DB and return stored preferences.
+router.post('/firebase', async (req, res) => {
+    const authHeader = req.headers['authorization'];
+    const idToken = authHeader && authHeader.split(' ')[1];
+    if (!idToken) return res.sendStatus(401);
+
+    try {
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        const { uid, email } = decoded;
+        const { name } = req.body;
+
+        // Add firebase_uid column if it doesn't exist yet (safe migration)
+        await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid TEXT UNIQUE;`);
+
+        // Upsert: if the user already exists by firebase_uid, update their info.
+        //         If they're new, insert them.
+        const result = await query(
+            `INSERT INTO users (email, name, firebase_uid)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (firebase_uid) DO UPDATE
+               SET email = EXCLUDED.email,
+                   name  = COALESCE(users.name, EXCLUDED.name)
+             RETURNING id, email, name, preferred_region, preferred_currency`,
+            [email, name || email, uid]
+        );
+
+        res.json({ user: result.rows[0] });
+    } catch (err) {
+        console.error('Firebase sync error:', err);
+        res.status(500).json({ error: 'Failed to sync user' });
     }
 });
 
-/**
- * POST /api/auth/login
- */
-router.post('/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        const result = await query('SELECT * FROM users WHERE email = $1', [email]);
-        const user = result.rows[0];
-
-        if (!user || str_is_google_user(user) || !(await bcrypt.compare(password, user.password_hash || ''))) {
-            return res.status(401).json({ error: 'Invalid credentials' });
-        }
-
-        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({
-            token,
-            user: {
-                id: user.id,
-                email: user.email,
-                name: user.name,
-                preferred_region: user.preferred_region,
-                preferred_currency: user.preferred_currency
-            }
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-/**
- * POST /api/auth/google
- */
-router.post('/google', async (req, res) => {
-    try {
-        const { credential } = req.body;
-        const ticket = await client.verifyIdToken({
-            idToken: credential,
-            audience: GOOGLE_CLIENT_ID,
-        });
-        const payload = ticket.getPayload();
-        const { email, name, sub: googleId } = payload;
-
-        // Check if user exists
-        let result = await query('SELECT * FROM users WHERE email = $1', [email]);
-        let user = result.rows[0];
-
-        if (!user) {
-            // Create user
-            result = await query(
-                `INSERT INTO users (email, google_id, name) VALUES ($1, $2, $3) RETURNING id, email, name, preferred_region, preferred_currency`,
-                [email, googleId, name]
-            );
-            user = result.rows[0];
-        } else if (!user.google_id) {
-            // Link Google ID to existing account if previously email/password
-            await query('UPDATE users SET google_id = $1 WHERE id = $2', [googleId, user.id]);
-        }
-
-        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({
-            token,
-            user: {
-                id: user.id,
-                email: user.email,
-                name: user.name,
-                preferred_region: user.preferred_region,
-                preferred_currency: user.preferred_currency
-            }
-        });
-
-    } catch (err) {
-        console.error(err);
-        res.status(401).json({ error: 'Google authentication failed' });
-    }
-});
-
-/**
- * POST /api/auth/microsoft
- * Validates a Microsoft access token via Graph API, upserts user, returns JWT
- */
-router.post('/microsoft', async (req, res) => {
-    try {
-        const { accessToken } = req.body;
-        if (!accessToken) return res.status(400).json({ error: 'accessToken required' });
-
-        // Validate token by calling Microsoft Graph API
-        const graphRes = await fetch('https://graph.microsoft.com/v1.0/me', {
-            headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!graphRes.ok) {
-            return res.status(401).json({ error: 'Invalid Microsoft access token' });
-        }
-        const profile = await graphRes.json();
-        const email = profile.mail || profile.userPrincipalName;
-        const name = profile.displayName || email;
-        const microsoftId = profile.id;
-
-        if (!email) return res.status(400).json({ error: 'Could not determine email from Microsoft profile' });
-
-        // Find or create user
-        let result = await query('SELECT * FROM users WHERE email = $1', [email]);
-        let user = result.rows[0];
-
-        if (!user) {
-            result = await query(
-                `INSERT INTO users (email, microsoft_id, name) VALUES ($1, $2, $3)
-                 RETURNING id, email, name, preferred_region, preferred_currency`,
-                [email, microsoftId, name]
-            );
-            user = result.rows[0];
-        } else if (!user.microsoft_id) {
-            await query('UPDATE users SET microsoft_id = $1 WHERE id = $2', [microsoftId, user.id]);
-        }
-
-        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({
-            token,
-            user: {
-                id: user.id,
-                email: user.email,
-                name: user.name,
-                preferred_region: user.preferred_region,
-                preferred_currency: user.preferred_currency
-            }
-        });
-    } catch (err) {
-        console.error('Microsoft auth error:', err);
-        res.status(401).json({ error: 'Microsoft authentication failed' });
-    }
-});
-
-/**
- * PUT /api/auth/preferences
- */
+// ── PUT /api/auth/preferences ─────────────────────────────────────────
 router.put('/preferences', authenticateToken, async (req, res) => {
     try {
         const { region, currency } = req.body;
         const result = await query(
-            `UPDATE users 
-             SET preferred_region = COALESCE($1, preferred_region), 
-                 preferred_currency = COALESCE($2, preferred_currency) 
-             WHERE id = $3 
+            `UPDATE users
+             SET preferred_region   = COALESCE($1, preferred_region),
+                 preferred_currency = COALESCE($2, preferred_currency)
+             WHERE id = $3
              RETURNING id, email, name, preferred_region, preferred_currency`,
             [region, currency, req.user.id]
         );
-        const user = result.rows[0];
-        res.json({
-            user: {
-                id: user.id,
-                email: user.email,
-                name: user.name,
-                preferred_region: user.preferred_region,
-                preferred_currency: user.preferred_currency
-            }
-        });
+        res.json({ user: result.rows[0] });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to update preferences' });
     }
 });
-
-function str_is_google_user(user) {
-    return user.google_id && !user.password_hash;
-}
 
 export default router;

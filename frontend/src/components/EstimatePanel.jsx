@@ -1,19 +1,31 @@
 import { useState } from 'react';
-import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check, Save, X, LogIn } from 'lucide-react';
+import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check, Save, X, LogIn, FileEdit } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
 import { useAuth } from '../context/AuthContext';
 import { formatPrice } from '../services/azurePricingApi';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
+/** Generate a readable title from the estimate items */
+function generateEstimateTitle(items) {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    const monthYear = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+    const primary = items[0];
+    const label = primary?.customName || primary?.skuName || primary?.serviceName || 'Estimate';
+    return `${label} — ${monthYear}`;
+}
+
 export default function EstimatePanel() {
     const {
         items, currency, removeItem, updateItem,
         clearAll, totalMonthlyCost, refreshing,
+        activeEstimateId, activeEstimateTitle, setActiveEstimate
     } = useEstimate();
     const { user, token } = useAuth();
     const navigate = useNavigate();
@@ -34,16 +46,19 @@ export default function EstimatePanel() {
         setSaveLoading(true);
         setSaveMsg(null);
         try {
-            const res = await fetch(`${API_URL}/estimates`, {
-                method: 'POST',
+            const url = activeEstimateId ? `${API_URL}/estimates/${activeEstimateId}` : `${API_URL}/estimates`;
+            const method = activeEstimateId ? 'PUT' : 'POST';
+
+            const res = await fetch(url, {
+                method,
                 headers: {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`,
                 },
                 body: JSON.stringify({
-                    name: saveName.trim(),
+                    ...(activeEstimateId ? {} : { name: saveName.trim() }),
                     items,
-                    total_cost: totalMonthlyCost,
+                    totalCost: totalMonthlyCost,
                     currency,
                 }),
             });
@@ -51,7 +66,11 @@ export default function EstimatePanel() {
                 const d = await res.json();
                 throw new Error(d.error || 'Save failed');
             }
-            setSaveMsg({ type: 'ok', text: `"${saveName.trim()}" saved!` });
+            if (!activeEstimateId) {
+                const data = await res.json();
+                setActiveEstimate(data.id, data.name);
+            }
+            setSaveMsg({ type: 'ok', text: activeEstimateId ? 'Estimate updated!' : `"${saveName.trim()}" saved!` });
             setSaveName('');
             setShowSaveForm(false);
             setTimeout(() => setSaveMsg(null), 3000);
@@ -59,6 +78,21 @@ export default function EstimatePanel() {
             setSaveMsg({ type: 'err', text: err.message });
         } finally {
             setSaveLoading(false);
+        }
+    }
+
+    function handleOpenSaveForm() {
+        if (!user) {
+            toast('Sign in to save your estimate', { icon: '🔒' });
+            return;
+        }
+        if (activeEstimateId) {
+            // If already editing a saved estimate, just auto-update it without asking for name
+            handleSaveEstimate();
+        } else {
+            // New save: ask for name
+            if (!saveName) setSaveName(generateEstimateTitle(items));
+            setShowSaveForm(v => !v);
         }
     }
 
@@ -197,231 +231,227 @@ export default function EstimatePanel() {
     }
 
     return (
-        <aside className="estimate-panel">
-            <div className="estimate-header">
-                <h3>
-                    <ShoppingCart size={16} />
-                    Your Estimate
-                    {items.length > 0 && <span className="item-count">{items.length}</span>}
-                </h3>
-            </div>
-
-            {refreshing && (
-                <div style={{
-                    padding: '8px 18px', fontSize: '0.75rem', color: 'var(--accent)',
-                    background: 'rgba(0,120,212,0.06)', borderBottom: '1px solid var(--border-primary)',
-                    display: 'flex', alignItems: 'center', gap: 8
-                }}>
-                    <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }}></div>
-                    Refreshing prices...
+        <>
+            <aside className="estimate-panel">
+                <div className="estimate-header">
+                    <h3>
+                        <ShoppingCart size={16} />
+                        Your Estimate
+                        {items.length > 0 && <span className="item-count">{items.length}</span>}
+                    </h3>
                 </div>
-            )}
 
-            <div className="estimate-items">
-                {items.length === 0 ? (
-                    <div className="estimate-empty">
-                        <ShoppingCart size={36} strokeWidth={1} />
-                        <p>No services added yet</p>
-                        <p style={{ fontSize: '0.72rem' }}>Browse services and click "Add to Estimate"</p>
+                {activeEstimateId && (
+                    <div className="active-estimate-banner">
+                        <FileEdit size={14} />
+                        <span>Editing: <strong>{activeEstimateTitle}</strong></span>
                     </div>
-                ) : (
-                    items.map(item => (
-                        <div key={item.id} className="estimate-item">
-                            <div className="estimate-item-header">
-                                <div style={{ flex: 1, marginRight: 12 }}>
-                                    <div className="estimate-item-name" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                        {editingNameId === item.id ? (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', marginBottom: 4 }}>
-                                                <input
-                                                    autoFocus
-                                                    value={editNameValue}
-                                                    onChange={e => setEditNameValue(e.target.value)}
-                                                    onKeyDown={e => { if (e.key === 'Enter') saveCustomName(item.id); if (e.key === 'Escape') setEditingNameId(null); }}
-                                                    style={{ flex: 1, padding: '2px 6px', fontSize: '0.85rem', borderRadius: 4, border: '1px solid var(--border-primary)', minWidth: 100 }}
-                                                    placeholder="Custom name..."
-                                                />
-                                                <button onClick={() => saveCustomName(item.id)} style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', display: 'flex', padding: 2 }}><Check size={14} /></button>
-                                                <button onClick={() => setEditingNameId(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}><X size={14} /></button>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                {item.customName ? (
-                                                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{item.customName}</span>
-                                                ) : null}
-                                                <span style={{ color: item.customName ? 'var(--text-secondary)' : 'var(--text-primary)', fontSize: item.customName ? '0.8rem' : 'inherit' }}>
-                                                    {item.customName ? `(${item.serviceName})` : item.serviceName}
-                                                </span>
-                                                <button onClick={() => startEditName(item)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex', opacity: 0.6 }} title="Edit Custom Name">
-                                                    <Pencil size={12} />
-                                                </button>
-                                            </>
-                                        )}
-                                    </div>
-                                    <div className="estimate-item-sku">{item.skuName || item.meterName}</div>
-                                    <div className="estimate-item-sku">{item.location || item.armRegionName}</div>
-                                </div>
-                                <button
-                                    className="estimate-item-remove"
-                                    onClick={() => removeItem(item.id)}
-                                    title="Remove"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            </div>
+                )}
 
-                            <div className="estimate-item-controls">
-                                <div className="control-group">
-                                    <label>Qty</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        value={item.quantity}
-                                        onChange={(e) => updateItem(item.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
-                                    />
+                {refreshing && (
+                    <div style={{
+                        padding: '8px 18px', fontSize: '0.75rem', color: 'var(--accent)',
+                        background: 'rgba(0,120,212,0.06)', borderBottom: '1px solid var(--border-primary)',
+                        display: 'flex', alignItems: 'center', gap: 8
+                    }}>
+                        <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }}></div>
+                        Refreshing prices...
+                    </div>
+                )}
+
+                <div className={`estimate-items ${items.length === 0 ? 'empty' : ''}`}>
+                    {items.length === 0 ? (
+                        <div className="estimate-empty">
+                            <ShoppingCart size={36} strokeWidth={1} />
+                            <p>No services added yet</p>
+                            <p style={{ fontSize: '0.72rem' }}>Browse services and click "Add to Estimate"</p>
+                        </div>
+                    ) : (
+                        items.map(item => (
+                            <div key={item.id} className="estimate-item">
+                                <div className="estimate-item-header">
+                                    <div style={{ flex: 1, marginRight: 12 }}>
+                                        <div className="estimate-item-name" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                            {editingNameId === item.id ? (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', marginBottom: 4 }}>
+                                                    <input
+                                                        autoFocus
+                                                        value={editNameValue}
+                                                        onChange={e => setEditNameValue(e.target.value)}
+                                                        onKeyDown={e => { if (e.key === 'Enter') saveCustomName(item.id); if (e.key === 'Escape') setEditingNameId(null); }}
+                                                        style={{ flex: 1, padding: '2px 6px', fontSize: '0.85rem', borderRadius: 4, border: '1px solid var(--border-primary)', minWidth: 100 }}
+                                                        placeholder="Custom name..."
+                                                    />
+                                                    <button onClick={() => saveCustomName(item.id)} style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', display: 'flex', padding: 2 }}><Check size={14} /></button>
+                                                    <button onClick={() => setEditingNameId(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}><X size={14} /></button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {item.customName ? (
+                                                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{item.customName}</span>
+                                                    ) : null}
+                                                    <span style={{ color: item.customName ? 'var(--text-secondary)' : 'var(--text-primary)', fontSize: item.customName ? '0.8rem' : 'inherit' }}>
+                                                        {item.customName ? `(${item.serviceName})` : item.serviceName}
+                                                    </span>
+                                                    <button onClick={() => startEditName(item)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex', opacity: 0.6 }} title="Edit Custom Name">
+                                                        <Pencil size={12} />
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                        <div className="estimate-item-sku">{item.skuName || item.meterName}</div>
+                                        <div className="estimate-item-sku">{item.location || item.armRegionName}</div>
+                                    </div>
+                                    <button
+                                        className="estimate-item-remove"
+                                        onClick={() => removeItem(item.id)}
+                                        title="Remove"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
                                 </div>
-                                {(item.unitOfMeasure || '').toLowerCase().includes('hour') && (
+
+                                <div className="estimate-item-controls">
                                     <div className="control-group">
-                                        <label>Hrs/Mo</label>
+                                        <label>Qty</label>
                                         <input
                                             type="number"
                                             min="1"
-                                            max="744"
-                                            value={item.hoursPerMonth}
-                                            onChange={(e) => updateItem(item.id, { hoursPerMonth: Math.max(1, parseInt(e.target.value) || 730) })}
+                                            value={item.quantity}
+                                            onChange={(e) => updateItem(item.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
                                         />
                                     </div>
-                                )}
-                                <div className="control-group">
-                                    <label>Unit Price</label>
-                                    {editingId === item.id ? (
-                                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                    {(item.unitOfMeasure || '').toLowerCase().includes('hour') && (
+                                        <div className="control-group">
+                                            <label>Hrs/Mo</label>
                                             <input
                                                 type="number"
-                                                step="0.0001"
-                                                min="0"
-                                                value={editPrice}
-                                                onChange={(e) => setEditPrice(e.target.value)}
-                                                onKeyDown={(e) => e.key === 'Enter' && savePrice(item.id)}
-                                                autoFocus
-                                                style={{ width: 70 }}
+                                                min="1"
+                                                max="744"
+                                                value={item.hoursPerMonth}
+                                                onChange={(e) => updateItem(item.id, { hoursPerMonth: Math.max(1, parseInt(e.target.value) || 730) })}
                                             />
-                                            <button
-                                                onClick={() => savePrice(item.id)}
-                                                style={{
-                                                    background: 'none', border: 'none', cursor: 'pointer',
-                                                    color: 'var(--success)', display: 'flex', padding: 2
-                                                }}
-                                                title="Save"
-                                            >
-                                                <Check size={14} />
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                            <span style={{ fontSize: '0.78rem', color: 'var(--text-primary)' }}>
-                                                {formatPrice(item.retailPrice, currency)}
-                                            </span>
-                                            <button
-                                                onClick={() => startEditPrice(item)}
-                                                style={{
-                                                    background: 'none', border: 'none', cursor: 'pointer',
-                                                    color: 'var(--text-muted)', display: 'flex', padding: 2
-                                                }}
-                                                title="Edit price"
-                                            >
-                                                <Pencil size={12} />
-                                            </button>
                                         </div>
                                     )}
+                                    <div className="control-group">
+                                        <label>Unit Price</label>
+                                        {editingId === item.id ? (
+                                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                                <input
+                                                    type="number"
+                                                    step="0.0001"
+                                                    min="0"
+                                                    value={editPrice}
+                                                    onChange={(e) => setEditPrice(e.target.value)}
+                                                    onKeyDown={(e) => e.key === 'Enter' && savePrice(item.id)}
+                                                    autoFocus
+                                                    style={{ width: 70 }}
+                                                />
+                                                <button
+                                                    onClick={() => savePrice(item.id)}
+                                                    style={{
+                                                        background: 'none', border: 'none', cursor: 'pointer',
+                                                        color: 'var(--success)', display: 'flex', padding: 2
+                                                    }}
+                                                    title="Save"
+                                                >
+                                                    <Check size={14} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.78rem', color: 'var(--text-primary)' }}>
+                                                    {formatPrice(item.retailPrice, currency)}
+                                                </span>
+                                                <button
+                                                    onClick={() => startEditPrice(item)}
+                                                    style={{
+                                                        background: 'none', border: 'none', cursor: 'pointer',
+                                                        color: 'var(--text-muted)', display: 'flex', padding: 2
+                                                    }}
+                                                    title="Edit price"
+                                                >
+                                                    <Pencil size={12} />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="estimate-item-price">
+                                    <div className="per-unit">
+                                        {formatPrice(item.retailPrice, currency)} / {item.unitOfMeasure}
+                                    </div>
+                                    <div className="price">
+                                        {formatPrice(calculateItemMonthly(item), currency)}/mo
+                                    </div>
                                 </div>
                             </div>
-
-                            <div className="estimate-item-price">
-                                <div className="per-unit">
-                                    {formatPrice(item.retailPrice, currency)} / {item.unitOfMeasure}
-                                </div>
-                                <div className="price">
-                                    {formatPrice(calculateItemMonthly(item), currency)}/mo
-                                </div>
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
-
-            {items.length > 0 && (
-                <div className="estimate-footer">
-                    <div className="estimate-total">
-                        <span className="label">Estimated Monthly</span>
-                        <span className="amount">{formatPrice(totalMonthlyCost, currency)}</span>
-                    </div>
-                    <div className="estimate-period">
-                        ≈ {formatPrice(totalMonthlyCost * 12, currency)} / year
-                    </div>
-
-                    {/* Save estimate message */}
-                    {saveMsg && (
-                        <div className={`est-save-msg ${saveMsg.type}`}>
-                            {saveMsg.type === 'ok' ? <Check size={12} /> : <X size={12} />}
-                            {saveMsg.text}
-                        </div>
+                        ))
                     )}
-
-                    {/* Save estimate inline form */}
-                    {showSaveForm && user && (
-                        <div className="est-save-form">
-                            <input
-                                className="est-save-input"
-                                placeholder="Name this estimate…"
-                                value={saveName}
-                                onChange={e => setSaveName(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter') handleSaveEstimate(); if (e.key === 'Escape') setShowSaveForm(false); }}
-                                autoFocus
-                                maxLength={80}
-                            />
-                            <button
-                                className="est-save-confirm-btn"
-                                onClick={handleSaveEstimate}
-                                disabled={saveLoading || !saveName.trim()}
-                            >
-                                {saveLoading ? '…' : <Check size={13} />}
-                            </button>
-                            <button className="est-save-cancel-btn" onClick={() => setShowSaveForm(false)}>
-                                <X size={13} />
-                            </button>
-                        </div>
-                    )}
-
-                    <div className="estimate-actions">
-                        {/* Save button — only for logged-in users */}
-                        {user ? (
-                            <button
-                                className="btn-secondary est-save-btn"
-                                onClick={() => setShowSaveForm(v => !v)}
-                                title="Save this estimate"
-                            >
-                                <Save size={14} /> Save
-                            </button>
-                        ) : (
-                            <button
-                                className="btn-secondary est-login-prompt-btn"
-                                onClick={() => navigate('/login')}
-                                title="Sign in to save estimates"
-                            >
-                                <LogIn size={14} /> Sign in to save
-                            </button>
-                        )}
-                        <button className="btn-primary" onClick={handleExportExcel}>
-                            <Download size={14} />
-                            Convert to Excel
-                        </button>
-                        <button className="btn-secondary" onClick={clearAll}>
-                            <RotateCcw size={14} />
-                            Clear
-                        </button>
-                    </div>
                 </div>
-            )}
-        </aside>
+
+                {items.length > 0 && (
+                    <div className="estimate-footer">
+                        <div className="estimate-total">
+                            <span className="label">Estimated Monthly</span>
+                            <span className="amount">{formatPrice(totalMonthlyCost, currency)}</span>
+                        </div>
+                        <div className="estimate-period">
+                            ≈ {formatPrice(totalMonthlyCost * 12, currency)} / year
+                        </div>
+
+                        {/* Save estimate message */}
+                        {saveMsg && (
+                            <div className={`est-save-msg ${saveMsg.type}`}>
+                                {saveMsg.type === 'ok' ? <Check size={12} /> : <X size={12} />}
+                                {saveMsg.text}
+                            </div>
+                        )}
+
+                        {/* Save estimate inline form */}
+                        {showSaveForm && user && (
+                            <div className="est-save-form">
+                                <input
+                                    className="est-save-input"
+                                    placeholder="Name this estimate…"
+                                    value={saveName}
+                                    onChange={e => setSaveName(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') handleSaveEstimate(); if (e.key === 'Escape') setShowSaveForm(false); }}
+                                    autoFocus
+                                    maxLength={80}
+                                />
+                                <button
+                                    className="est-save-confirm-btn"
+                                    onClick={handleSaveEstimate}
+                                    disabled={saveLoading || !saveName.trim()}
+                                >
+                                    {saveLoading ? '…' : <Check size={13} />}
+                                </button>
+                                <button className="est-save-cancel-btn" onClick={() => setShowSaveForm(false)}>
+                                    <X size={13} />
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="estimate-actions">
+                            <button
+                                className="est-action-btn est-save-btn"
+                                onClick={handleOpenSaveForm}
+                                title={activeEstimateId ? "Update this estimate" : "Save this estimate"}
+                            >
+                                <Save size={14} /> {activeEstimateId ? "Update Estimate" : "Save"}
+                            </button>
+                            <button className="est-action-btn est-export-btn" onClick={handleExportExcel}>
+                                <Download size={14} /> Excel
+                            </button>
+                            <button className="est-action-btn est-clear-btn" onClick={clearAll}>
+                                <RotateCcw size={14} /> Clear
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </aside>
+        </>
     );
 }

@@ -529,6 +529,7 @@ app.get('/api/estimates', authenticateToken, async (req, res) => {
         const { query } = await import('./db.js');
         const result = await query(
             `SELECT id, name, total_cost, currency, created_at, updated_at,
+                    items,
                     jsonb_array_length(items) AS item_count
              FROM estimates
              WHERE user_id = $1

@@ -1,17 +1,16 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { GoogleLogin } from '@react-oauth/google';
 import { useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, ArrowLeft } from 'lucide-react';
 
-// Microsoft icon SVG
-function MicrosoftIcon() {
+// Google icon
+function GoogleIcon() {
     return (
-        <svg width="18" height="18" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
-            <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-            <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-            <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-            <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+        <svg width="18" height="18" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.7 33.3 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.7-8 20-19.9.1-.7.1-2.7-.4-4.1z" />
+            <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.8 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.4 6.3 14.7z" />
+            <path fill="#4CAF50" d="M24 44c5.2 0 10-1.9 13.6-5l-6.3-5.3C29.5 35.5 26.9 36 24 36c-5.2 0-9.6-3.5-11.2-8.2l-6.5 5C9.7 39.6 16.3 44 24 44z" />
+            <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.3-4.5 5.7l6.3 5.3C41.3 35.7 44 30.3 44 24c0-1.3-.1-2.7-.4-4z" />
         </svg>
     );
 }
@@ -24,7 +23,7 @@ const FEATURES = [
 ];
 
 export default function LoginPage() {
-    const { login, signup, googleLogin, microsoftLogin } = useAuth();
+    const { login, signup, googleLogin } = useAuth();
     const navigate = useNavigate();
 
     const [mode, setMode] = useState('login'); // 'login' | 'signup'
@@ -34,7 +33,18 @@ export default function LoginPage() {
     const [showPw, setShowPw] = useState(false);
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [msLoading, setMsLoading] = useState(false);
+    const [googleLoading, setGoogleLoading] = useState(false);
+
+    function friendlyError(err) {
+        const code = err?.code || '';
+        if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential')
+            return 'Invalid email or password.';
+        if (code === 'auth/email-already-in-use') return 'An account with this email already exists.';
+        if (code === 'auth/weak-password') return 'Password should be at least 6 characters.';
+        if (code === 'auth/invalid-email') return 'Please enter a valid email address.';
+        if (code === 'auth/popup-closed-by-user') return 'Google sign-in was cancelled.';
+        return err?.message || 'Something went wrong. Please try again.';
+    }
 
     async function handleSubmit(e) {
         e.preventDefault();
@@ -48,32 +58,22 @@ export default function LoginPage() {
             }
             navigate('/dashboard');
         } catch (err) {
-            setError(err.message);
+            setError(friendlyError(err));
         } finally {
             setLoading(false);
         }
     }
 
-    async function handleGoogleSuccess(credentialResponse) {
+    async function handleGoogle() {
         setError(null);
+        setGoogleLoading(true);
         try {
-            await googleLogin(credentialResponse);
-            navigate('/dashboard');
-        } catch {
-            setError('Google login failed. Please try again.');
-        }
-    }
-
-    async function handleMicrosoft() {
-        setError(null);
-        setMsLoading(true);
-        try {
-            await microsoftLogin();
+            await googleLogin();
             navigate('/dashboard');
         } catch (err) {
-            setError(err.message || 'Microsoft login failed. Please try again.');
+            setError(friendlyError(err));
         } finally {
-            setMsLoading(false);
+            setGoogleLoading(false);
         }
     }
 
@@ -138,6 +138,20 @@ export default function LoginPage() {
                     {/* Error banner */}
                     {error && <div className="auth-error-banner"><span>⚠</span> {error}</div>}
 
+                    {/* Google Sign-In */}
+                    <button
+                        className="auth-google-btn"
+                        onClick={handleGoogle}
+                        disabled={googleLoading || loading}
+                        type="button"
+                    >
+                        {googleLoading ? <span className="auth-spinner" /> : <GoogleIcon />}
+                        {googleLoading ? 'Signing in…' : 'Continue with Google'}
+                    </button>
+
+                    {/* Divider */}
+                    <div className="auth-divider"><span>or use email</span></div>
+
                     {/* Email/password form */}
                     <form onSubmit={handleSubmit} className="auth-form">
                         {mode === 'signup' && (
@@ -198,52 +212,13 @@ export default function LoginPage() {
                             </div>
                         </div>
 
-                        <button type="submit" className="auth-submit-btn" disabled={loading}>
+                        <button type="submit" className="auth-submit-btn" disabled={loading || googleLoading}>
                             {loading ? <span className="auth-spinner" /> : <ArrowRight size={16} />}
                             {loading
                                 ? (mode === 'login' ? 'Signing in…' : 'Creating account…')
                                 : (mode === 'login' ? 'Sign In' : 'Create Account')}
                         </button>
                     </form>
-
-                    {/* Divider */}
-                    <div className="auth-divider"><span>or continue with</span></div>
-
-                    {/* OAuth buttons */}
-                    <div className="auth-oauth-row">
-                        {/* Google — uses the @react-oauth/google component rendered invisible then triggered */}
-                        <div className="auth-oauth-btn-wrap google">
-                            <GoogleLogin
-                                onSuccess={handleGoogleSuccess}
-                                onError={() => setError('Google Login Failed')}
-                                useOneTap={false}
-                                render={renderProps => (
-                                    <button
-                                        className="auth-oauth-btn"
-                                        onClick={renderProps.onClick}
-                                        disabled={renderProps.disabled}
-                                    >
-                                        <svg width="18" height="18" viewBox="0 0 48 48">
-                                            <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.7 33.3 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.7-8 20-19.9.1-.7.1-2.7-.4-4.1z" />
-                                            <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.8 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.4 6.3 14.7z" />
-                                            <path fill="#4CAF50" d="M24 44c5.2 0 10-1.9 13.6-5l-6.3-5.3C29.5 35.5 26.9 36 24 36c-5.2 0-9.6-3.5-11.2-8.2l-6.5 5C9.7 39.6 16.3 44 24 44z" />
-                                            <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.3-4.5 5.7l6.3 5.3C41.3 35.7 44 30.3 44 24c0-1.3-.1-2.7-.4-4z" />
-                                        </svg>
-                                        Google
-                                    </button>
-                                )}
-                            />
-                        </div>
-
-                        <button
-                            className="auth-oauth-btn"
-                            onClick={handleMicrosoft}
-                            disabled={msLoading}
-                        >
-                            {msLoading ? <span className="auth-spinner" /> : <MicrosoftIcon />}
-                            Microsoft
-                        </button>
-                    </div>
 
                     <p className="auth-switch-text">
                         {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}

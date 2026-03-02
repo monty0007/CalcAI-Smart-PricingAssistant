@@ -9,6 +9,8 @@ const defaultState = {
     currency: 'INR',
     region: 'centralindia',
     refreshing: false,
+    activeEstimateId: null,
+    activeEstimateTitle: null,
 };
 
 function init() {
@@ -19,6 +21,8 @@ function init() {
             currency: localStorage.getItem('azure_estimate_currency') || 'INR',
             region: localStorage.getItem('azure_estimate_region') || 'centralindia',
             refreshing: false,
+            activeEstimateId: localStorage.getItem('azure_estimate_active_id') || null,
+            activeEstimateTitle: localStorage.getItem('azure_estimate_active_title') || null,
         };
     } catch {
         return defaultState;
@@ -55,8 +59,14 @@ function estimateReducer(state, action) {
             return { ...state, currency: action.payload };
         case 'SET_REGION':
             return { ...state, region: action.payload };
+        case 'SET_ACTIVE_ESTIMATE':
+            return {
+                ...state,
+                activeEstimateId: action.payload.id,
+                activeEstimateTitle: action.payload.title
+            };
         case 'CLEAR_ALL':
-            return { ...state, items: [] };
+            return { ...state, items: [], activeEstimateId: null, activeEstimateTitle: null };
         case 'BULK_UPDATE_PRICES':
             return {
                 ...state,
@@ -83,10 +93,14 @@ export function EstimateProvider({ children }) {
             localStorage.setItem('azure_estimate_items', JSON.stringify(state.items));
             localStorage.setItem('azure_estimate_currency', state.currency);
             localStorage.setItem('azure_estimate_region', state.region);
+            if (state.activeEstimateId) localStorage.setItem('azure_estimate_active_id', state.activeEstimateId);
+            else localStorage.removeItem('azure_estimate_active_id');
+            if (state.activeEstimateTitle) localStorage.setItem('azure_estimate_active_title', state.activeEstimateTitle);
+            else localStorage.removeItem('azure_estimate_active_title');
         } catch (err) {
             console.error("Failed to save to localStorage:", err);
         }
-    }, [state.items, state.currency, state.region]);
+    }, [state.items, state.currency, state.region, state.activeEstimateId, state.activeEstimateTitle]);
     const { user, token } = useAuth();
 
     // Load user preferences on login
@@ -196,6 +210,10 @@ export function EstimateProvider({ children }) {
         dispatch({ type: 'REPLACE_ITEMS', payload: newItems });
     }, []);
 
+    const setActiveEstimate = useCallback((id, title) => {
+        dispatch({ type: 'SET_ACTIVE_ESTIMATE', payload: { id, title } });
+    }, []);
+
     const totalMonthlyCost = state.items.reduce((sum, item) => {
         const price = item.retailPrice || 0;
         const qty = item.quantity || 1;
@@ -219,6 +237,7 @@ export function EstimateProvider({ children }) {
                 updateItem,
                 setCurrency,
                 setRegion,
+                setActiveEstimate,
                 clearAll,
                 replaceItems,
                 totalMonthlyCost,
