@@ -42,23 +42,32 @@ The backend originally utilized SQLite via Turso. We have successfully migrated 
 - **Relational Integrity**: Unified user accounts, saved estimates, synchronized pricing instances, and AI Chat histories under one reliable RDBMS structure.
 
 ### Project Layout
-```
+```text
 CalcAI/
-├── frontend/      React + Vite Frontend
-│   └── src/
-│       ├── components/  # Estimate panels, auth modals
-│       ├── context/     # Auth & Estimator global state
-│       ├── pages/       # Dashboard, AiPage, Calculator
-│       └── services/    # REST wrappers (azurePricingApi, aiChatsApi)
+├── ai_architecture.md     # Architecture and design notes for the AI logic
+├── README.md              # Project documentation
 │
-├── backend/       Express REST API
-│   └── src/
-│       ├── db.js        # PostgreSQL pool, schema initialization, and queries
-│       ├── index.js     # Express server setup and public routes
-│       ├── auth.js      # JWT generation and login controllers
-│       ├── aiTools.js   # Estimate Calculator endpoint utilized by LLMs
-│       └── chats.js     # AI Chat Memory persistent router
-└── README.md
+├── backend/               # Node.js and Python backend environment
+│   ├── .env               # Database connection strings and environment variables
+│   ├── package.json       # Backend Node dependencies
+│   ├── data/              # Stores local JSON output/data files
+│   ├── scripts/           # Data fetching scripts (like initial_pricing_load.py)
+│   ├── src/               # Main backend source code/routes (e.g., db.js, index.js)
+│   └── tests/             # Organization folder for test*.js and check*.json files
+│
+└── frontend/              # Vite + React Frontend application
+    ├── index.html         # Main HTML entry point
+    ├── package.json       # React dependencies and scripts
+    ├── public/            # Static assets (contains vite.svg holding the tab favicon)
+    └── src/               # React Source Code
+        ├── main.jsx       # React DOM mount point
+        ├── App.jsx        # Root component and Navigation routing
+        ├── index.css      # Core CSS, CSS variables, and theme styling
+        ├── components/    # Reusable UI components (like the custom Logo.jsx)
+        ├── context/       # React Context providers (AuthContext, EstimateContext)
+        ├── data/          # Static configuration data (e.g., serviceCatalog.js)
+        ├── pages/         # Full page views (LandingPage.jsx, AiPage.jsx, etc.)
+        └── services/      # REST API integration logic
 ```
 
 ---
@@ -130,6 +139,9 @@ The application functions comprehensively as an end-to-end pricing and estimatio
 - Authentication works securely.
 - The PostgreSQL database handles huge Azure queries seamlessly.
 - The AI responds perfectly to highly complex architectural estimates and remembers past conversations correctly.
+- A custom brand logo and responsive navbar are implemented, complete with dark/light mode context swapping and browser favicon updates.
+- The `backend/tests/` folder was created to cleanly organize the litany of data inspection scripts.
+- The python `initial_pricing_load.py` script was patched with absolute paths to ensure `.env` loads in any environment.
 
 **Future additions could include:**
 - Connecting live user subscriptions to view exact EA (Enterprise Agreement) contracted rates rather than retail limits.

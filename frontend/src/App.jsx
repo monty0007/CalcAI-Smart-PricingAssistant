@@ -9,6 +9,7 @@ import CalculatorPage from './pages/CalculatorPage';
 import LandingPage from './pages/LandingPage';
 import AiPage from './pages/AiPage';
 import VmComparisonPage from './pages/VmComparisonPage';
+import Logo from './components/Logo';
 import './index.css';
 
 function Navbar() {
@@ -34,9 +35,8 @@ function Navbar() {
 
   return (
     <nav className="navbar">
-      <NavLink to="/" className="navbar-brand">
-        <div className="logo-icon">Ca</div>
-        <span>CalcAI</span>
+      <NavLink to="/" className="navbar-brand" style={{ padding: '4px 0', textDecoration: 'none' }}>
+        <Logo variant={theme === 'light' ? 'light' : 'dark'} />
       </NavLink>
 
       <div className="navbar-links">
