@@ -62,61 +62,71 @@ function parseQuery(query) {
 }
 
 // ── AI call ──────────────────────────────────────────────────────────
-async function callAI(messages, pricingContext, currency, depth = 0) {
-    if (!AI_ENDPOINT || !AI_API_KEY) return null;
-    if (depth > 2) return "I'm sorry, I encountered too many tool operations to process this effectively.";
+async function callAI(messages, pricingContext, currency, depth = 0, _toolResult = null) {
+    if (!AI_ENDPOINT || !AI_API_KEY) return { text: null, toolResult: null };
+    if (depth > 2) return { text: "I'm sorry, I encountered too many tool operations to process this effectively.", toolResult: _toolResult };
 
     const systemMsg = {
         role: 'system',
-        content: `You are an expert Azure Pricing Assistant. You understand the Azure Pricing Calculator export format.
+        content: `You are an expert Azure Pricing Assistant.
 
-## CORE RULES
-1. NEVER guess prices. Always call the calculate_estimate tool.
-2. When you receive a multi-service workload query, call calculate_estimate ONCE with ALL services as separate items[]. Never split into multiple calls.
-3. NEVER ask for confirmation. Parse and call the tool IMMEDIATELY.
-4. After tool returns data, respond with a Markdown pricing table.
+## ABSOLUTE RULES
+1. NEVER guess or estimate prices. ONLY report what the calculate_estimate tool returns.
+2. Decompose EVERY user query into typed line items BEFORE calling the tool.
+3. Call calculate_estimate ONCE with ALL items in a single items[] array. Never split into multiple calls.
+4. NEVER ask for confirmation. Parse and call the tool IMMEDIATELY.
+5. If the tool returns a note of "no match" for an item, tell the user that item couldn't be priced. Do NOT substitute a number.
+6. After tool returns data, respond with a Markdown pricing table.
+
+## ITEM DECOMPOSITION RULES
+Every user query must be broken down into items with a \`type\` field. The backend routes ONLY on \`type\`.
+
+### type: "vm" — Virtual Machines
+- sku: extract SKU e.g. "D8s v5", "D4s_v3", "B2ms"  
+- os: "windows" or "linux" (default "linux")
+- reservation: "1 Year", "3 Year", or "" for PAYG
+- region: Azure region slug e.g. "centralindia", "eastus"
+- quantity: number of instances (default 1)
+- IMPORTANT: Windows OS on a reserved VM is handled automatically by the backend — do NOT create a separate OS item. The backend calculates reservation base + Windows surcharge internally.
+
+### type: "managed_disk" — Managed Disks
+- diskType: "E10", "E15", "E20", "E30", "S4", "S10", "P10" etc.
+- diskTier: "Standard SSD", "Premium SSD", "Standard HDD"
+- diskRedundancy: "LRS", "ZRS", "GRS" (default "LRS")
+- region: Azure region slug
+- quantity: number of disks (default 1)
+- transactions: number of monthly disk transactions (default 0). If user mentions transactions or IOPS, set this.
+- IMPORTANT: Disks attached to a VM are ALWAYS separate items, never part of the VM item.
+
+### type: "bandwidth" — Data Transfer / Bandwidth
+- transferType: "internet" or "inter-region"
+- sourceRegion: Azure region slug where traffic originates
+- destinationRegion: (optional) for inter-region transfers
+- dataTransferGB: GB of outbound data
+- IMPORTANT: Bandwidth is ALWAYS a separate item, never part of a VM or other item.
+
+### type: "ip_address" — Public IP Addresses
+- ipType: "Static" or "Dynamic" (default "Static")
+- region: Azure region slug
+- quantity: number of IPs (default 1)
+
+### type: "defender" — Microsoft Defender for Cloud
+- serverCount: number of servers (default 1)
+
+### type: "monitor" — Azure Monitor / Log Analytics
+- dataIngestionGB: daily ingestion GB (default 0.2)
 
 ## STRUCTURED WORKLOAD FORMAT
-Users may paste workloads in a 4-line-per-service format (repeating blocks):
-Line 1: Service Category (Compute, Storage, Networking, Security, DevOps)
-Line 2: Service Type     (Virtual Machines, Storage Accounts, Bandwidth, IP Addresses, Microsoft Defender for Cloud, Azure Monitor)
-Line 3: Custom Name      (user label like "App server", "Database server - OS disk")
-Line 4: Description      (detailed config string)
+Users may paste workloads in a 4-line-per-service format:
+Line 1: Service Category → use to determine \`type\`
+Line 2: Service Type → use to determine \`type\`  
+Line 3: Custom Name → use as \`name\`
+Line 4: Description → parse config fields from this
 
-Parse each 4-line block into one item in the items[] array.
-
-## PARSING RULES BY SERVICE TYPE
-
-### Virtual Machines (category: Compute, service: Virtual Machines)
-- sku: extract from description e.g. "D8s v5", "D4s_v3", "B2ms"
-- os: "Windows server" -> "Windows", else "Linux"
-- reservation: "1 year reserved" -> "1 Year", "3 year" -> "3 Year", else ""
-- region: extract region name, default "centralindia"
-- quantity: number before SKU e.g. "1 D8s v5" -> 1
-
-### Managed Disks (category: Storage, service: Managed Disks)
-- diskType: extract "E10", "E15", "E20", "E30", "S4", "S10", "P10" etc from Disk Type field
-- diskTier: "Standard SSD", "Premium SSD", "Standard HDD"
-- diskRedundancy: "LRS", "ZRS", "GRS" 
-- quantity: number before "Disks" in description
-
-### Bandwidth (category: Networking, service: Bandwidth)
-- dataTransferGB: extract GB number e.g. "150 GB outbound" -> 150
-- transferType: "Internet egress" or "Inter Region"
-
-### IP Addresses (category: Networking, service: IP Addresses)
-- ipType: "Static", "Dynamic"
-- quantity: count of IPs
-
-### Microsoft Defender for Cloud (category: Security)
-- serverCount: number of servers
-
-### Azure Monitor (category: DevOps, service: Azure Monitor)
-- dataIngestionGB: daily ingestion GB
-- tier: "Basic" or "Analytics"
+Map: "Virtual Machines"→vm, "Managed Disks"→managed_disk, "Bandwidth"→bandwidth, "IP Addresses"→ip_address, "Microsoft Defender"→defender, "Azure Monitor"→monitor
 
 ## OUTPUT FORMAT (after tool call returns)
-Use this exact Markdown table:
+Use this Markdown table:
 
 | Service | Description | Monthly Cost (${currency}) |
 |---------|-------------|---------------------------|
@@ -142,39 +152,36 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
                     type: "function",
                     function: {
                         name: "calculate_estimate",
-                        description: `Calculate monthly Azure costs. Call IMMEDIATELY for any pricing request or when user pastes a workload. Parse ALL service blocks into items[] in ONE single call.`,
+                        description: `Calculate monthly Azure costs. Decompose the user query into typed items and call this ONCE with ALL items. Each item MUST have a "type" field.`,
                         parameters: {
                             type: "object",
                             properties: {
                                 items: {
                                     type: "array",
-                                    description: "One entry per service block in the workload",
+                                    description: "One typed item per service component. Disks and bandwidth are always separate items from VMs.",
                                     items: {
                                         type: "object",
                                         properties: {
-                                            category: { type: "string", description: "Compute, Storage, Networking, Security, DevOps" },
-                                            service: { type: "string", description: "Virtual Machines, Managed Disks, Bandwidth, IP Addresses, Microsoft Defender for Cloud, Azure Monitor" },
-                                            name: { type: "string", description: "User-defined label for this line item" },
-                                            configuration: {
-                                                type: "object",
-                                                properties: {
-                                                    sku: { type: "string", description: "VM SKU e.g. 'D8s v5', 'B2ms'" },
-                                                    os: { type: "string", description: "'Windows' or 'Linux'" },
-                                                    tier: { type: "string", description: "'Standard', 'Premium', 'Basic'" },
-                                                    reservation: { type: "string", description: "'1 Year', '3 Year', or '' for PAYG" },
-                                                    quantity: { type: "number", description: "Number of instances / disks / IPs" },
-                                                    region: { type: "string", description: "Azure region slug e.g. centralindia, eastus, eastasia" },
-                                                    diskType: { type: "string", description: "Managed Disk SKU: E10, E15, E20, E30, S4, P10 etc." },
-                                                    diskTier: { type: "string", description: "'Standard SSD', 'Premium SSD', 'Standard HDD'" },
-                                                    diskRedundancy: { type: "string", description: "'LRS', 'ZRS', 'GRS'" },
-                                                    dataTransferGB: { type: "number", description: "GB of outbound data transfer" },
-                                                    transferType: { type: "string", description: "'Internet egress' or 'Inter Region'" },
-                                                    ipType: { type: "string", description: "'Static' or 'Dynamic'" },
-                                                    serverCount: { type: "number", description: "Number of Defender-protected servers" }
-                                                }
-                                            }
+                                            type: { type: "string", enum: ["vm", "managed_disk", "bandwidth", "ip_address", "defender", "monitor"], description: "The item type — backend routes on this field" },
+                                            name: { type: "string", description: "User-friendly label e.g. 'App Server - Compute'" },
+                                            sku: { type: "string", description: "VM SKU e.g. 'D8s v5', 'B2ms'" },
+                                            os: { type: "string", enum: ["linux", "windows"], description: "OS type for VMs" },
+                                            reservation: { type: "string", description: "'1 Year', '3 Year', or '' for PAYG" },
+                                            quantity: { type: "number", description: "Number of instances/disks/IPs (default 1)" },
+                                            region: { type: "string", description: "Azure region slug e.g. centralindia, eastus" },
+                                            diskType: { type: "string", description: "Disk SKU: E10, E15, E20, E30, S4, P10 etc." },
+                                            diskTier: { type: "string", description: "'Standard SSD', 'Premium SSD', 'Standard HDD'" },
+                                            diskRedundancy: { type: "string", description: "'LRS', 'ZRS', 'GRS'" },
+                                            transactions: { type: "number", description: "Monthly disk transactions (billed per 10k)" },
+                                            dataTransferGB: { type: "number", description: "GB of outbound data transfer" },
+                                            transferType: { type: "string", description: "'internet' or 'inter-region'" },
+                                            sourceRegion: { type: "string", description: "Region where traffic originates" },
+                                            destinationRegion: { type: "string", description: "Destination region for inter-region transfers" },
+                                            ipType: { type: "string", description: "'Static' or 'Dynamic'" },
+                                            serverCount: { type: "number", description: "Number of Defender-protected servers" },
+                                            dataIngestionGB: { type: "number", description: "Daily data ingestion for Azure Monitor" }
                                         },
-                                        required: ["category", "service"]
+                                        required: ["type"]
                                     }
                                 }
                             },
@@ -183,7 +190,9 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
                     }
                 }
             ],
-            tool_choice: "auto"
+            tool_choice: depth === 0
+                ? { type: 'function', function: { name: 'calculate_estimate' } }
+                : 'auto'
         };
 
         fetch(LOG_URL, {
@@ -192,12 +201,19 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
             body: JSON.stringify({ message: 'REQUEST TO OPENAI', data: payload })
         }).catch(() => { });
 
+        const isAzure = AI_ENDPOINT.includes('azure.com');
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (isAzure) {
+            headers['api-key'] = AI_API_KEY;
+        } else {
+            headers['Authorization'] = `Bearer ${AI_API_KEY}`;
+        }
+
         const res = await fetch(AI_ENDPOINT, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${AI_API_KEY}`,
-            },
+            headers,
             body: JSON.stringify(payload),
         });
         if (!res.ok) {
@@ -232,7 +248,7 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
                         content: JSON.stringify(backendResult)
                     });
 
-                    return await callAI(messages, pricingContext, currency, depth + 1);
+                    return await callAI(messages, pricingContext, currency, depth + 1, backendResult);
                 } catch (e) {
                     console.error("Tool execution error", e);
                     messages.push(responseMessage);
@@ -242,14 +258,21 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
                         name: toolCall.function.name,
                         content: JSON.stringify({ error: "Failed to map parameters natively" })
                     });
-                    return await callAI(messages, pricingContext, currency, depth + 1);
+                    return await callAI(messages, pricingContext, currency, depth + 1, _toolResult);
                 }
             }
         }
 
-        return responseMessage.content || null;
+        // If model returned plain text (after a tool round-trip), return it.
+        // If it returned plain text on the *first* call (depth===0), discard it —
+        // the model should have called the tool, not guessed.
+        if (responseMessage.content) {
+            if (depth === 0) return { text: null, toolResult: null }; // refuse unverified answer
+            return { text: responseMessage.content, toolResult: _toolResult };
+        }
+        return { text: null, toolResult: _toolResult };
     } catch {
-        return null;
+        return { text: null, toolResult: null };
     }
 }
 
@@ -333,7 +356,12 @@ function PricingCard({ item, currency, onAddToEstimate }) {
 
 // ── Title generation ──────────────────────────────────────────────────
 async function generateChatTitle(query) {
-    const fallback = query.slice(0, 30) + (query.length > 30 ? '...' : '');
+    let fallback = query.slice(0, 30) + (query.length > 30 ? '...' : '');
+    const lower = query.trim().toLowerCase();
+    if (lower === 'hi' || lower === 'hello' || lower === 'hey') {
+        return 'New Chat';
+    }
+
     if (!AI_ENDPOINT || !AI_API_KEY) return fallback;
     try {
         const res = await fetch(AI_ENDPOINT, {
@@ -345,7 +373,7 @@ async function generateChatTitle(query) {
             body: JSON.stringify({
                 model: AI_MODEL,
                 messages: [
-                    { role: 'system', content: 'Summarize the user query into a short chat title (max 4 words). Do not use quotes, punctuation, or conversational text.' },
+                    { role: 'system', content: 'Summarize the given Azure pricing query into a short title (max 4 words). Focus entirely on the Azure Services requested. Exclude greetings, quotes, or conversational fluff. If only a greeting, reply "New Chat".' },
                     { role: 'user', content: query }
                 ],
                 max_tokens: 10,
@@ -470,7 +498,7 @@ export default function AiPage() {
                 const data = await fetchServicePricing(parsed.matchedService.serviceName, parsed.region, currency);
                 if (data.items.length > 0) {
                     const sorted = [...data.items].sort((a, b) => a.retailPrice - b.retailPrice);
-                    pricingData = sorted.slice(0, 10).map(item => ({
+                    pricingData = sorted.slice(0, 4).map(item => ({
                         name: item.skuName || item.meterName || 'Service SKU',
                         product: item.productName || parsed.matchedService.serviceName,
                         price: item.retailPrice,
@@ -503,7 +531,7 @@ export default function AiPage() {
                     const vmTerm = query.split(' ').find(w => w.toLowerCase().startsWith('standard_') || w.toLowerCase().startsWith('basic_')) || keywords;
 
                     if (vmTerm) {
-                        const vmData = await fetchVmList({ search: vmTerm, region: parsed.region, currency, limit: 10 }).catch(() => ({ items: [] }));
+                        const vmData = await fetchVmList({ search: vmTerm, region: parsed.region, currency, limit: 4 }).catch(() => ({ items: [] }));
                         if (vmData.items?.length > 0) {
                             data.items = vmData.items.map(vm => ({
                                 skuName: vm.skuName,
@@ -519,7 +547,7 @@ export default function AiPage() {
 
                     // If it was a VM query but no specific SKU was found, fetch generic popular VMs as context
                     if (data.items.length === 0) {
-                        const genericVmData = await fetchVmList({ search: '', region: parsed.region, currency, limit: 10 }).catch(() => ({ items: [] }));
+                        const genericVmData = await fetchVmList({ search: '', region: parsed.region, currency, limit: 4 }).catch(() => ({ items: [] }));
                         if (genericVmData.items?.length > 0) {
                             data.items = genericVmData.items.map(vm => ({
                                 skuName: vm.skuName,
@@ -541,7 +569,7 @@ export default function AiPage() {
 
                 if (data.items.length > 0) {
                     const sorted = [...data.items].sort((a, b) => a.retailPrice - b.retailPrice);
-                    pricingData = sorted.slice(0, 10).map(item => ({
+                    pricingData = sorted.slice(0, 4).map(item => ({
                         name: item.skuName || item.meterName || 'Service SKU',
                         product: item.productName || 'Azure Service',
                         price: item.retailPrice,
@@ -558,6 +586,7 @@ export default function AiPage() {
 
             // Build AI or template response
             let aiText = null;
+            let aiToolResult = null;
             if (hasAI) {
                 // Include full conversation history. Loaded chats may not have a 'type'
                 // field, so we must not filter by type. Only exclude the initial greeting (id===0).
@@ -565,7 +594,25 @@ export default function AiPage() {
                     .filter(m => m.id !== 0 && (m.role === 'user' || m.role === 'bot'))
                     .slice(-60)
                     .map(m => ({ role: m.role === 'bot' ? 'assistant' : 'user', content: m.content }));
-                aiText = await callAI(aiMessages, pricingContext, currency);
+                const aiResult = await callAI(aiMessages, pricingContext, currency);
+                aiText = aiResult?.text ?? null;
+                aiToolResult = aiResult?.toolResult ?? null;
+            }
+
+            // If AI used the tool, build pricing cards from the verified tool result breakdown.
+            // Backend returns each item as: { name, cost, note }
+            // Otherwise fall back to the pre-fetched pricingData (keyword search results).
+            if (aiToolResult?.breakdown?.length > 0) {
+                pricingData = aiToolResult.breakdown
+                    .filter(item => item.cost > 0)
+                    .map(item => ({
+                        name: item.name || 'Service',
+                        product: item.note || 'Azure Service',
+                        price: item.cost,
+                        unit: 'month',
+                        region: parsed.region,
+                        currency,
+                    }));
             }
 
             let responseText = '';
@@ -633,15 +680,15 @@ export default function AiPage() {
             {/* ── Left Sidebar (History) ───────────────────────── */}
             <div className={`ai-sidebar ${showSidebar ? 'mobile-open' : ''}`}>
                 <div className="ai-sidebar-header" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button className="ai-back-btn" onClick={() => navigate(-1)} title="Back to Dashboard">
+                    <button className="ai-back-btn" onClick={() => navigate(-1)} title="Back to Dashboard" style={{ margin: 0 }}>
                         <ArrowLeft size={18} />
                     </button>
-                    <h2 style={{ flex: 1, margin: 0, fontSize: '1rem' }}>Chat History</h2>
-                    <button className="btn btn-primary" style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }} onClick={handleNewChat} title="New Chat">
-                        <Plus size={14} /> New
-                    </button>
+                    <h2 style={{ flex: 1, margin: 0, fontSize: '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Chat History</h2>
                 </div>
                 <div className="ai-sidebar-content">
+                    <button className="btn btn-primary" style={{ width: '100%', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px' }} onClick={handleNewChat} title="New Chat">
+                        <Plus size={16} /> New Chat
+                    </button>
                     {chatList.length === 0 ? (
                         <div style={{ padding: '10px 15px', color: 'var(--text-light)', fontSize: '0.9rem' }}>No recent chats.</div>
                     ) : (
@@ -674,7 +721,7 @@ export default function AiPage() {
                         <div className="ai-header__icon" style={{ cursor: 'pointer' }} onClick={() => setShowSidebar(!showSidebar)}>
                             <Sparkles size={20} />
                         </div>
-                        <div>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
                             <h1 className="ai-header__title">Azure Pricing Assistant</h1>
                             <p className="ai-header__sub">Ask about any Azure service — get real pricing data instantly</p>
                         </div>

@@ -3,9 +3,30 @@ import { query } from './db.js';
 
 const router = express.Router();
 
+// ── Azure Region → Billing Zone Map ──────────────────────────────────────────
+const ZONE_MAP = {
+    // Zone 1 — North America, Europe
+    eastus: 1, eastus2: 1, westus: 1, westus2: 1, westus3: 1, centralus: 1,
+    northcentralus: 1, southcentralus: 1, westcentralus: 1,
+    canadacentral: 1, canadaeast: 1,
+    northeurope: 1, westeurope: 1, uksouth: 1, ukwest: 1,
+    francecentral: 1, francesouth: 1, germanywestcentral: 1,
+    switzerlandnorth: 1, switzerlandwest: 1, norwayeast: 1, norwaywest: 1,
+    swedencentral: 1, polandcentral: 1, italynorth: 1, spaincentral: 1,
+    // Zone 2 — Asia Pacific, Japan, India, Australia, Korea
+    eastasia: 2, southeastasia: 2, japaneast: 2, japanwest: 2,
+    centralindia: 2, southindia: 2, westindia: 2, jioindiawest: 2, jioindiacentral: 2,
+    australiaeast: 2, australiasoutheast: 2, australiacentral: 2,
+    koreacentral: 2, koreasouth: 2,
+    // Zone 3 — Brazil, South Africa, Middle East
+    brazilsouth: 3, brazilsoutheast: 3,
+    southafricanorth: 3, southafricawest: 3,
+    uaenorth: 3, uaecentral: 3, qatarcentral: 3, israelcentral: 3,
+};
+
 /**
  * POST /api/tools/calculate_estimate
- * Called by the AI Assistant to convert a batch of workloads into an estimated cost breakdown.
+ * Refactored to route on item.type instead of fuzzy category/service matching.
  */
 router.post('/calculate_estimate', async (req, res) => {
     console.log('🔥 CALCULATE_ESTIMATE HIT');
@@ -24,353 +45,377 @@ router.post('/calculate_estimate', async (req, res) => {
         let total = 0;
 
         for (const item of items) {
-            const { category, service, name, configuration = {} } = item;
-            const cfg = configuration || {};
+            const region = (item.region || 'centralindia').toLowerCase().replace(/\s+/g, '');
+            const qty = item.quantity || 1;
 
-            // Normalised helpers
-            const catLow = (category || '').toLowerCase();
-            const svcLow = (service || '').toLowerCase();
-            const cfgStr = JSON.stringify(cfg).toLowerCase();
+            switch (item.type) {
 
-            const isWindows = cfgStr.includes('windows');
-            const isSpot = cfgStr.includes('spot') || cfgStr.includes('low priority');
-            const is1Year = cfgStr.includes('1 year') || (cfg.reservation || '').toLowerCase().includes('1 year');
-            const is3Year = cfgStr.includes('3 year') || (cfg.reservation || '').toLowerCase().includes('3 year');
-            const region = (cfg.region || 'centralindia').toLowerCase().replace(/\s+/g, '');
+                // ──────────────────────────────────────────────
+                // VM — Virtual Machines (Two-Query Logic)
+                // ──────────────────────────────────────────────
+                case 'vm': {
+                    const isWindows = (item.os || '').toLowerCase() === 'windows';
+                    const is1Year = (item.reservation || '').toLowerCase().includes('1 year');
+                    const is3Year = (item.reservation || '').toLowerCase().includes('3 year');
+                    const isReserved = is1Year || is3Year;
+                    const isSpot = (item.sku || '').toLowerCase().includes('spot');
 
-            let sql = '';
-            const args = [];
-            let paramIdx = 1;
+                    // ── Query 1: Base compute price ──
+                    let sql = `
+                        SELECT sku_name, product_name, raw_data->>'meterName' AS meter_name,
+                               retail_price, raw_data->>'unitOfMeasure' AS unit_of_measure
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'Virtual Machines'
+                          AND arm_region_name = $1
+                    `;
+                    const args = [region];
+                    let paramIdx = 2;
 
-            // ──────────────────────────────────────────────
-            // COMPUTE — Virtual Machines
-            // ──────────────────────────────────────────────
-            if (catLow === 'compute' || svcLow === 'virtual machines') {
-                sql = `
-                    SELECT sku_name, product_name, raw_data->>'meterName' AS meter_name,
-                           retail_price, raw_data->>'unitOfMeasure' AS unit_of_measure
-                    FROM azure_prices
-                    WHERE currency_code = 'USD'
-                      AND is_active = TRUE
-                      AND service_name = 'Virtual Machines'
-                `;
-
-                if (region) { sql += ` AND arm_region_name = $${paramIdx}`; args.push(region); paramIdx++; }
-
-                if (isWindows && !is1Year && !is3Year) {
-                    sql += ` AND product_name ILIKE '%Windows%'`;
-                } else if (!is1Year && !is3Year) {
-                    sql += ` AND product_name NOT ILIKE '%Windows%'`;
-                }
-
-                if (!isSpot) {
-                    sql += ` AND product_name NOT ILIKE '%Spot%' AND product_name NOT ILIKE '%Low Priority%'
-                             AND sku_name NOT ILIKE '%Spot%' AND sku_name NOT ILIKE '%Low Priority%'`;
-                }
-
-                if (is1Year) {
-                    sql += ` AND type = 'Reservation' AND reservation_term ILIKE '%1 Year%'`;
-                } else if (is3Year) {
-                    sql += ` AND type = 'Reservation' AND (reservation_term ILIKE '%3 Year%' OR reservation_term ILIKE '%3 Years%')`;
-                } else {
-                    sql += ` AND type = 'Consumption'`;
-                }
-
-                // SKU match
-                if (cfg.sku) {
-                    // Normalize spaces and underscores to % so "D8s v5" matches "Standard_D8s_v5"
-                    const cleanSku = cfg.sku.replace(/[_\s]+/g, '%').trim();
-                    sql += ` AND sku_name ILIKE $${paramIdx}`;
-                    args.push(`%${cleanSku}%`);
-                    paramIdx++;
-                }
-
-                // Don't limit to 1 immediately so we can sort by retail_price if multiple meters exist. 
-                // However, the base query order by is fine.
-                sql += ` AND retail_price > 0 ORDER BY retail_price ASC LIMIT 1`;
-
-                console.log('VM SQL:', sql, args);
-                const dbResult = await query(sql, args);
-                let itemCost = 0;
-                let osNote = '';
-
-                if (dbResult.rows.length > 0) {
-                    const row = dbResult.rows[0];
-                    const qty = cfg.quantity || 1;
-
-                    // Reservations are returned as total upfront prices (1 year or 3 years).
-                    if (is1Year) {
-                        itemCost = (row.retail_price / 12) * qty * rate;
-                    } else if (is3Year) {
-                        itemCost = (row.retail_price / 36) * qty * rate;
-                    } else {
-                        itemCost = row.retail_price * 730 * qty * rate;
-                    }
-
-                    // Add OS Cost if this is a Windows VM on a reservation (which only covers base compute)
-                    if (isWindows && (is1Year || is3Year)) {
-                        const cleanSku = (cfg.sku || '').replace(/[_\s]+/g, '%').trim();
-                        const osSql = `
-                            SELECT 
-                                MAX(CASE WHEN product_name ILIKE '%Windows%' THEN retail_price ELSE 0 END) 
-                                - MAX(CASE WHEN product_name NOT ILIKE '%Windows%' THEN retail_price ELSE 0 END) 
-                                AS os_price_per_hour
-                            FROM azure_prices
-                            WHERE service_name = 'Virtual Machines' 
-                              AND type = 'Consumption' 
-                              AND sku_name ILIKE $1
-                              AND arm_region_name = $2
-                        `;
-                        const osArgs = [`%${cleanSku}%`, region || 'centralindia'];
-                        const osRes = await query(osSql, osArgs);
-                        if (osRes.rows.length > 0 && osRes.rows[0].os_price_per_hour > 0) {
-                            const osMonthlyCost = osRes.rows[0].os_price_per_hour * 730 * qty * rate;
-                            itemCost += osMonthlyCost;
-                            osNote = ' + Windows OS License';
+                    // Reservations only cover base compute — NEVER filter on Windows for reservations
+                    if (isReserved) {
+                        sql += ` AND product_name NOT ILIKE '%Windows%'`;
+                        if (is1Year) {
+                            sql += ` AND type = 'Reservation' AND reservation_term ILIKE '%1 Year%'`;
+                        } else {
+                            sql += ` AND type = 'Reservation' AND (reservation_term ILIKE '%3 Year%' OR reservation_term ILIKE '%3 Years%')`;
                         }
+                    } else {
+                        // PAYG — filter on OS
+                        if (isWindows) {
+                            sql += ` AND product_name ILIKE '%Windows%'`;
+                        } else {
+                            sql += ` AND product_name NOT ILIKE '%Windows%'`;
+                        }
+                        sql += ` AND type = 'Consumption'`;
                     }
 
-                } else {
-                    console.warn(`No VM match for sku=${cfg.sku}, region=${region}`);
+                    if (!isSpot) {
+                        sql += ` AND product_name NOT ILIKE '%Spot%' AND product_name NOT ILIKE '%Low Priority%'
+                                 AND sku_name NOT ILIKE '%Spot%' AND sku_name NOT ILIKE '%Low Priority%'`;
+                    }
+
+                    if (item.sku) {
+                        const cleanSku = item.sku.replace(/[_\s]+/g, '%').trim();
+                        sql += ` AND sku_name ILIKE $${paramIdx}`;
+                        args.push(`%${cleanSku}%`);
+                        paramIdx++;
+                    }
+
+                    sql += ` AND retail_price > 0 ORDER BY retail_price ASC LIMIT 1`;
+
+                    console.log('VM SQL:', sql, args);
+                    const dbResult = await query(sql, args);
+                    let itemCost = 0;
+                    let osNote = '';
+
+                    if (dbResult.rows.length > 0) {
+                        const row = dbResult.rows[0];
+                        if (is1Year) {
+                            itemCost = (row.retail_price / 12) * qty * rate;
+                        } else if (is3Year) {
+                            itemCost = (row.retail_price / 36) * qty * rate;
+                        } else {
+                            itemCost = row.retail_price * 730 * qty * rate;
+                        }
+
+                        // ── Query 2: Windows OS surcharge (only for reserved Windows VMs) ──
+                        if (isWindows && isReserved) {
+                            const cleanSku = (item.sku || '').replace(/[_\s]+/g, '%').trim();
+                            const osSql = `
+                                SELECT 
+                                    MAX(CASE WHEN product_name ILIKE '%Windows%' THEN retail_price ELSE 0 END) 
+                                    - MAX(CASE WHEN product_name NOT ILIKE '%Windows%' THEN retail_price ELSE 0 END) 
+                                    AS os_price_per_hour
+                                FROM azure_prices
+                                WHERE service_name = 'Virtual Machines' 
+                                  AND type = 'Consumption' 
+                                  AND sku_name ILIKE $1
+                                  AND arm_region_name = $2
+                                  AND currency_code = 'USD'
+                                  AND is_active = TRUE
+                                  AND retail_price > 0
+                                  AND product_name NOT ILIKE '%Spot%'
+                                  AND product_name NOT ILIKE '%Low Priority%'
+                            `;
+                            const osArgs = [`%${cleanSku}%`, region];
+                            console.log('OS Surcharge SQL:', osSql, osArgs);
+                            const osRes = await query(osSql, osArgs);
+                            if (osRes.rows.length > 0 && osRes.rows[0].os_price_per_hour > 0) {
+                                const osMonthlyCost = osRes.rows[0].os_price_per_hour * 730 * qty * rate;
+                                itemCost += osMonthlyCost;
+                                osNote = ` + Windows OS License ($${(osMonthlyCost / rate).toFixed(2)}/mo USD)`;
+                            }
+                        }
+                    } else {
+                        console.warn(`No VM match for sku=${item.sku}, region=${region}`);
+                    }
+
+                    breakdown.push({
+                        name: item.name || `VM – ${item.sku || 'Unknown'}`,
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: (dbResult.rows[0]?.sku_name || 'no match') + osNote
+                    });
+                    total += itemCost;
+                    break;
                 }
 
-                breakdown.push({
-                    name: name || `VM – ${cfg.sku || service}`,
-                    cost: parseFloat(itemCost.toFixed(2)),
-                    note: (dbResult.rows[0]?.sku_name || 'no match') + osNote,
-                    debug_sql: sql,
-                    debug_args: args
-                });
-                total += itemCost;
-                continue;
-            }
+                // ──────────────────────────────────────────────
+                // MANAGED DISK + Transaction Pricing
+                // ──────────────────────────────────────────────
+                case 'managed_disk': {
+                    let sql = `
+                        SELECT sku_name, product_name, raw_data->>'meterName' AS meter_name,
+                               retail_price, raw_data->>'unitOfMeasure' AS unit_of_measure
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'Storage'
+                          AND arm_region_name = $1
+                    `;
+                    const args = [region];
+                    let paramIdx = 2;
 
-            // ──────────────────────────────────────────────
-            // STORAGE — Managed Disks
-            // ──────────────────────────────────────────────
-            if (svcLow.includes('managed disk') || (catLow === 'storage' && cfg.diskType)) {
-                sql = `
-                    SELECT sku_name, product_name, raw_data->>'meterName' AS meter_name,
-                           retail_price, raw_data->>'unitOfMeasure' AS unit_of_measure
-                    FROM azure_prices
-                    WHERE currency_code = 'USD'
-                      AND is_active = TRUE
-                      AND service_name = 'Storage'
-                `;
+                    // diskTier filter
+                    const diskTier = (item.diskTier || '').toLowerCase();
+                    if (diskTier.includes('premium')) {
+                        sql += ` AND product_name ILIKE '%Premium SSD%'`;
+                    } else if (diskTier.includes('standard hdd') || diskTier.includes('hdd')) {
+                        sql += ` AND product_name ILIKE '%Standard HDD%'`;
+                    } else {
+                        // Default to Standard SSD
+                        sql += ` AND product_name ILIKE '%Standard SSD%'`;
+                    }
 
-                if (region) { sql += ` AND arm_region_name = $${paramIdx}`; args.push(region); paramIdx++; }
+                    // diskType + redundancy filter (e.g. "E10 LRS")
+                    const redundancy = (item.diskRedundancy || 'LRS').toUpperCase();
+                    const dType = item.diskType || '';
 
-                // diskTier filter
-                const diskTier = cfg.diskTier || '';
-                if (diskTier.toLowerCase().includes('premium')) {
-                    sql += ` AND product_name ILIKE '%Premium SSD%'`;
-                } else if (diskTier.toLowerCase().includes('standard ssd') || diskTier === '') {
-                    sql += ` AND product_name ILIKE '%Standard SSD%'`;
-                } else if (diskTier.toLowerCase().includes('standard hdd') || diskTier.toLowerCase().includes('standard')) {
-                    sql += ` AND product_name ILIKE '%Standard HDD%'`;
+                    if (dType && redundancy) {
+                        sql += ` AND sku_name ILIKE $${paramIdx}`;
+                        args.push(`%${dType} ${redundancy}%`);
+                        paramIdx++;
+                    } else if (dType) {
+                        sql += ` AND sku_name ILIKE $${paramIdx}`;
+                        args.push(`%${dType}%`);
+                        paramIdx++;
+                    }
+
+                    // Exclude transaction meters — we want disk capacity pricing only
+                    sql += ` AND retail_price > 0 AND (raw_data->>'meterName' IS NULL OR (raw_data->>'meterName' NOT ILIKE '%Transaction%' AND raw_data->>'meterName' NOT ILIKE '%Operation%'))`;
+                    sql += ` ORDER BY retail_price ASC LIMIT 1`;
+
+                    console.log('Disk SQL:', sql, args);
+                    const dbResult = await query(sql, args);
+                    let diskCapacityCost = 0;
+                    if (dbResult.rows.length > 0) {
+                        diskCapacityCost = dbResult.rows[0].retail_price * qty * rate;
+                    } else {
+                        console.warn(`No Managed Disk match for diskType=${dType}, tier=${diskTier}, redundancy=${redundancy}`);
+                    }
+
+                    breakdown.push({
+                        name: item.name || `Disk – ${dType || 'Unknown'}`,
+                        cost: parseFloat(diskCapacityCost.toFixed(2)),
+                        note: dbResult.rows[0]?.sku_name || 'no match'
+                    });
+                    total += diskCapacityCost;
+
+                    // ── Disk Transaction Pricing ──
+                    const transactions = item.transactions || 0;
+                    if (transactions > 0) {
+                        const txSql = `
+                            SELECT retail_price, raw_data->>'meterName' AS meter_name
+                            FROM azure_prices
+                            WHERE currency_code = 'USD'
+                              AND is_active = TRUE
+                              AND service_name = 'Storage'
+                              AND arm_region_name = $1
+                              AND (raw_data->>'meterName' ILIKE '%Disk Operations%' OR raw_data->>'meterName' ILIKE '%Transaction%')
+                              AND retail_price > 0
+                            ORDER BY retail_price ASC LIMIT 1
+                        `;
+                        const txResult = await query(txSql, [region]);
+                        let txCost = 0;
+                        if (txResult.rows.length > 0) {
+                            // Azure bills per 10,000 operations
+                            txCost = txResult.rows[0].retail_price * (transactions / 10000) * qty * rate;
+                        }
+
+                        breakdown.push({
+                            name: (item.name || `Disk – ${dType}`) + ' (Transactions)',
+                            cost: parseFloat(txCost.toFixed(2)),
+                            note: txResult.rows[0]?.meter_name || 'no match'
+                        });
+                        total += txCost;
+                    }
+                    break;
                 }
 
-                // diskRedundancy and Type filters
-                const redundancy = (cfg.diskRedundancy || 'LRS').toUpperCase();
-                const dType = cfg.diskType || '';
+                // ──────────────────────────────────────────────
+                // BANDWIDTH — with Zone Mapping
+                // ──────────────────────────────────────────────
+                case 'bandwidth': {
+                    const sourceRegion = (item.sourceRegion || item.region || 'centralindia').toLowerCase().replace(/\s+/g, '');
+                    const transferType = (item.transferType || 'internet').toLowerCase();
+                    const gb = item.dataTransferGB || 0;
 
-                // Usually sku_name format is "E10 LRS"
-                if (dType && redundancy) {
-                    sql += ` AND sku_name ILIKE $${paramIdx}`;
-                    args.push(`%${dType} ${redundancy}%`);
-                    paramIdx++;
-                } else if (dType) {
-                    sql += ` AND sku_name ILIKE $${paramIdx}`;
-                    args.push(`%${dType}%`);
-                    paramIdx++;
-                } else {
-                    sql += ` AND sku_name ILIKE $${paramIdx}`;
-                    args.push(`%${redundancy}%`);
-                    paramIdx++;
+                    let sql = `
+                        SELECT sku_name, product_name, raw_data->>'meterName' AS meter_name,
+                               retail_price, raw_data->>'unitOfMeasure' AS unit_of_measure
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'Bandwidth'
+                    `;
+                    const args = [];
+
+                    if (transferType.includes('inter-region') || transferType.includes('inter region')) {
+                        sql += ` AND (raw_data->>'meterName' ILIKE '%Inter-Region%' OR raw_data->>'meterName' ILIKE '%Inter Region%')`;
+                    } else {
+                        // Internet egress — use zone mapping for source region
+                        const zone = ZONE_MAP[sourceRegion] || 1;
+                        sql += ` AND raw_data->>'meterName' ILIKE $1`;
+                        args.push(`%Zone ${zone}%`);
+                    }
+
+                    sql += ` AND retail_price > 0 ORDER BY retail_price ASC LIMIT 1`;
+
+                    console.log('Bandwidth SQL:', sql, args);
+                    const dbResult = await query(sql, args);
+                    let itemCost = 0;
+                    if (dbResult.rows.length > 0) {
+                        itemCost = dbResult.rows[0].retail_price * gb * rate;
+                    }
+
+                    breakdown.push({
+                        name: item.name || `Bandwidth – ${gb} GB ${transferType}`,
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: dbResult.rows[0]?.meter_name || 'no match'
+                    });
+                    total += itemCost;
+                    break;
                 }
 
-                // Exclude transaction meters, we want the disk capacity pricing
-                // The main disk capacity has meter_name = 'E10 Disks' etc, not 'Data Stored' for operations
-                sql += ` AND retail_price > 0 AND (raw_data->>'meterName' IS NULL OR (raw_data->>'meterName' NOT ILIKE '%Transaction%' AND raw_data->>'meterName' NOT ILIKE '%Operation%'))`;
+                // ──────────────────────────────────────────────
+                // IP ADDRESS
+                // ──────────────────────────────────────────────
+                case 'ip_address': {
+                    const ipType = (item.ipType || 'Static').toLowerCase();
+                    const sql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name ILIKE '%IP Addresses%'
+                          AND raw_data->>'meterName' ILIKE $1
+                          AND arm_region_name = $2
+                          AND retail_price > 0
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const dbResult = await query(sql, [`%${ipType}%`, region]);
+                    let itemCost = 0;
+                    if (dbResult.rows.length > 0) {
+                        itemCost = dbResult.rows[0].retail_price * 730 * qty * rate;
+                    }
 
-                sql += ` ORDER BY retail_price ASC LIMIT 1`;
-
-                const dbResult = await query(sql, args);
-                let itemCost = 0;
-                if (dbResult.rows.length > 0) {
-                    const qty = cfg.quantity || 1;
-                    itemCost = dbResult.rows[0].retail_price * qty * rate;
-                } else {
-                    console.warn(`No Managed Disk match for diskType=${cfg.diskType}, tier=${diskTier}, redundancy=${redundancy}`);
+                    breakdown.push({
+                        name: item.name || 'Public IP Address',
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: dbResult.rows[0]?.meter_name || 'no match'
+                    });
+                    total += itemCost;
+                    break;
                 }
 
-                breakdown.push({
-                    name: name || `Disk – ${cfg.diskType || service}`,
-                    cost: parseFloat(itemCost.toFixed(2)),
-                    note: dbResult.rows[0]?.sku_name || 'no match'
-                });
-                total += itemCost;
-                continue;
-            }
+                // ──────────────────────────────────────────────
+                // DEFENDER — Microsoft Defender for Cloud
+                // ──────────────────────────────────────────────
+                case 'defender': {
+                    const servers = item.serverCount || 1;
+                    const sql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'Microsoft Defender for Cloud'
+                          AND product_name ILIKE '%Server%'
+                          AND retail_price > 0
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const dbResult = await query(sql, []);
+                    let itemCost = 0;
+                    if (dbResult.rows.length > 0) {
+                        itemCost = dbResult.rows[0].retail_price * servers * 730 * rate;
+                    }
 
-            // ──────────────────────────────────────────────
-            // NETWORKING — Bandwidth / Data Transfer
-            // ──────────────────────────────────────────────
-            if (catLow === 'networking' && (svcLow.includes('bandwidth') || svcLow.includes('egress') || svcLow.includes('content delivery') || cfg.dataTransferGB)) {
-                sql = `
-                    SELECT sku_name, product_name, raw_data->>'meterName' AS meter_name,
-                           retail_price, raw_data->>'unitOfMeasure' AS unit_of_measure
-                    FROM azure_prices
-                    WHERE currency_code = 'USD'
-                      AND is_active = TRUE
-                      AND service_name = 'Bandwidth'
-                `;
-
-                // Bandwidth pricing is often grouped by Zones (Zone 1, Zone 2 etc) rather than specific regions 
-                // like 'centralindia', so omitting the strict region match prevents returning 0 rows.
-
-                const transferType = (cfg.transferType || 'Internet egress').toLowerCase();
-                if (transferType.includes('inter region') || transferType.includes('inter-region')) {
-                    sql += ` AND (raw_data->>'meterName' ILIKE '%Inter-Region%' OR raw_data->>'meterName' ILIKE '%Zone 1%')`;
-                } else {
-                    sql += ` AND raw_data->>'meterName' ILIKE '%Data Transfer Out%'`;
+                    breakdown.push({
+                        name: item.name || 'Microsoft Defender for Cloud',
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: dbResult.rows[0]?.meter_name || 'no match'
+                    });
+                    total += itemCost;
+                    break;
                 }
 
-                sql += ` ORDER BY retail_price ASC LIMIT 1`;
+                // ──────────────────────────────────────────────
+                // MONITOR — Azure Monitor / Log Analytics
+                // ──────────────────────────────────────────────
+                case 'monitor': {
+                    const gbPerDay = item.dataIngestionGB || 0.2;
+                    const sql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name ILIKE '%Monitor%'
+                          AND raw_data->>'meterName' ILIKE '%Data Ingestion%'
+                          AND retail_price > 0
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const dbResult = await query(sql, []);
+                    let itemCost = 0;
+                    if (dbResult.rows.length > 0) {
+                        itemCost = dbResult.rows[0].retail_price * gbPerDay * 30 * rate;
+                    }
 
-                const dbResult = await query(sql, args);
-                let itemCost = 0;
-                if (dbResult.rows.length > 0) {
-                    const gb = cfg.dataTransferGB || 0;
-                    itemCost = dbResult.rows[0].retail_price * gb * rate;
+                    breakdown.push({
+                        name: item.name || 'Azure Monitor Log Analytics',
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: dbResult.rows[0]?.meter_name || 'no match'
+                    });
+                    total += itemCost;
+                    break;
                 }
 
-                breakdown.push({
-                    name: name || `Bandwidth – ${cfg.dataTransferGB || 0} GB`,
-                    cost: parseFloat(itemCost.toFixed(2)),
-                    note: dbResult.rows[0]?.meter_name || 'no match'
-                });
-                total += itemCost;
-                continue;
-            }
+                // ──────────────────────────────────────────────
+                // FALLBACK — keyword search
+                // ──────────────────────────────────────────────
+                default: {
+                    const keyword = item.sku || item.name || item.type || '';
+                    const sql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND (sku_name ILIKE $1 OR product_name ILIKE $1 OR service_name ILIKE $1)
+                          AND retail_price > 0
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const dbResult = await query(sql, [`%${keyword}%`]);
+                    let itemCost = 0;
+                    if (dbResult.rows.length > 0) {
+                        itemCost = dbResult.rows[0].retail_price * 730 * rate;
+                    }
 
-            // ──────────────────────────────────────────────
-            // NETWORKING — IP Addresses
-            // ──────────────────────────────────────────────
-            if (catLow === 'networking' && svcLow.includes('ip')) {
-                sql = `
-                    SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
-                    FROM azure_prices
-                    WHERE currency_code = 'USD'
-                      AND is_active = TRUE
-                      AND service_name ILIKE '%IP Addresses%'
-                      AND raw_data->>'meterName' ILIKE '%Static%'
-                    ORDER BY retail_price ASC LIMIT 1
-                `;
-
-                const dbResult = await query(sql, []);
-                let itemCost = 0;
-                if (dbResult.rows.length > 0) {
-                    const qty = cfg.quantity || 1;
-                    itemCost = dbResult.rows[0].retail_price * 730 * qty * rate;
+                    breakdown.push({
+                        name: item.name || 'Unknown Component',
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: dbResult.rows[0]?.sku_name || 'no match'
+                    });
+                    total += itemCost;
                 }
-
-                breakdown.push({
-                    name: name || 'Public IP Address',
-                    cost: parseFloat(itemCost.toFixed(2)),
-                    note: dbResult.rows[0]?.meter_name || 'no match'
-                });
-                total += itemCost;
-                continue;
-            }
-
-            // ──────────────────────────────────────────────
-            // SECURITY — Microsoft Defender for Cloud
-            // ──────────────────────────────────────────────
-            if (catLow === 'security' || svcLow.includes('defender')) {
-                sql = `
-                    SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
-                    FROM azure_prices
-                    WHERE currency_code = 'USD'
-                      AND is_active = TRUE
-                      AND service_name = 'Microsoft Defender for Cloud'
-                      AND product_name ILIKE '%Server%'
-                      AND retail_price > 0
-                    ORDER BY retail_price ASC LIMIT 1
-                `;
-
-                const dbResult = await query(sql, []);
-                let itemCost = 0;
-                if (dbResult.rows.length > 0) {
-                    const servers = cfg.serverCount || 1;
-                    itemCost = dbResult.rows[0].retail_price * servers * 730 * rate;
-                }
-
-                breakdown.push({
-                    name: name || 'Microsoft Defender for Cloud',
-                    cost: parseFloat(itemCost.toFixed(2)),
-                    note: dbResult.rows[0]?.meter_name || 'no match'
-                });
-                total += itemCost;
-                continue;
-            }
-
-            // ──────────────────────────────────────────────
-            // DEVOPS — Azure Monitor / Log Analytics
-            // ──────────────────────────────────────────────
-            if (catLow === 'devops' || svcLow.includes('monitor') || svcLow.includes('log analytics')) {
-                sql = `
-                    SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
-                    FROM azure_prices
-                    WHERE currency_code = 'USD'
-                      AND is_active = TRUE
-                      AND service_name ILIKE '%Monitor%'
-                      AND raw_data->>'meterName' ILIKE '%Data Ingestion%'
-                      AND retail_price > 0
-                    ORDER BY retail_price ASC LIMIT 1
-                `;
-
-                const dbResult = await query(sql, []);
-                let itemCost = 0;
-                if (dbResult.rows.length > 0) {
-                    const gbPerDay = cfg.dataIngestionGB || 0.2;
-                    itemCost = dbResult.rows[0].retail_price * gbPerDay * 30 * rate;
-                }
-
-                breakdown.push({
-                    name: name || 'Azure Monitor Log Analytics',
-                    cost: parseFloat(itemCost.toFixed(2)),
-                    note: dbResult.rows[0]?.meter_name || 'no match'
-                });
-                total += itemCost;
-                continue;
-            }
-
-            // ──────────────────────────────────────────────
-            // GENERIC FALLBACK — keyword search
-            // ──────────────────────────────────────────────
-            {
-                const keyword = cfg.sku || service || category || '';
-                sql = `
-                    SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
-                    FROM azure_prices
-                    WHERE currency_code = 'USD'
-                      AND is_active = TRUE
-                      AND (sku_name ILIKE $1 OR product_name ILIKE $1 OR service_name ILIKE $1)
-                    ORDER BY retail_price ASC LIMIT 1
-                `;
-                const dbResult = await query(sql, [`%${keyword}%`]);
-                let itemCost = 0;
-                if (dbResult.rows.length > 0) {
-                    itemCost = dbResult.rows[0].retail_price * 730 * rate;
-                }
-
-                breakdown.push({
-                    name: name || service || 'Unknown Component',
-                    cost: parseFloat(itemCost.toFixed(2)),
-                    note: dbResult.rows[0]?.sku_name || 'no match'
-                });
-                total += itemCost;
             }
         }
 

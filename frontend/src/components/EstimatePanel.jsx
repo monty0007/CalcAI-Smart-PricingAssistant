@@ -20,6 +20,9 @@ export default function EstimatePanel() {
     const [editingId, setEditingId] = useState(null);
     const [editPrice, setEditPrice] = useState('');
 
+    const [editingNameId, setEditingNameId] = useState(null);
+    const [editNameValue, setEditNameValue] = useState('');
+
     // Save estimate state
     const [showSaveForm, setShowSaveForm] = useState(false);
     const [saveName, setSaveName] = useState('');
@@ -71,6 +74,16 @@ export default function EstimatePanel() {
         }
         setEditingId(null);
         setEditPrice('');
+    }
+
+    function startEditName(item) {
+        setEditingNameId(item.id);
+        setEditNameValue(item.customName || '');
+    }
+
+    function saveCustomName(id) {
+        updateItem(id, { customName: editNameValue.trim() });
+        setEditingNameId(null);
     }
 
     async function handleExportExcel() {
@@ -129,7 +142,7 @@ export default function EstimatePanel() {
             const dataRow = ws.addRow([
                 item.serviceFamily || 'Other',
                 item.serviceName || '',
-                '', // Custom Name
+                item.customName || '', // Custom Name
                 item.location || item.armRegionName || '',
                 description,
                 formatPrice(monthlyPrice, currency),
@@ -215,8 +228,35 @@ export default function EstimatePanel() {
                     items.map(item => (
                         <div key={item.id} className="estimate-item">
                             <div className="estimate-item-header">
-                                <div>
-                                    <div className="estimate-item-name">{item.serviceName}</div>
+                                <div style={{ flex: 1, marginRight: 12 }}>
+                                    <div className="estimate-item-name" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                        {editingNameId === item.id ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', marginBottom: 4 }}>
+                                                <input
+                                                    autoFocus
+                                                    value={editNameValue}
+                                                    onChange={e => setEditNameValue(e.target.value)}
+                                                    onKeyDown={e => { if (e.key === 'Enter') saveCustomName(item.id); if (e.key === 'Escape') setEditingNameId(null); }}
+                                                    style={{ flex: 1, padding: '2px 6px', fontSize: '0.85rem', borderRadius: 4, border: '1px solid var(--border-primary)', minWidth: 100 }}
+                                                    placeholder="Custom name..."
+                                                />
+                                                <button onClick={() => saveCustomName(item.id)} style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', display: 'flex', padding: 2 }}><Check size={14} /></button>
+                                                <button onClick={() => setEditingNameId(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}><X size={14} /></button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {item.customName ? (
+                                                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{item.customName}</span>
+                                                ) : null}
+                                                <span style={{ color: item.customName ? 'var(--text-secondary)' : 'var(--text-primary)', fontSize: item.customName ? '0.8rem' : 'inherit' }}>
+                                                    {item.customName ? `(${item.serviceName})` : item.serviceName}
+                                                </span>
+                                                <button onClick={() => startEditName(item)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex', opacity: 0.6 }} title="Edit Custom Name">
+                                                    <Pencil size={12} />
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
                                     <div className="estimate-item-sku">{item.skuName || item.meterName}</div>
                                     <div className="estimate-item-sku">{item.location || item.armRegionName}</div>
                                 </div>
