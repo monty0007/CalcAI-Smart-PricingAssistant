@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
     try {
         const result = await query(
             `SELECT id, name, total_cost, currency, created_at, updated_at,
-                    jsonb_array_length(items) AS item_count
+                    items, jsonb_array_length(items) AS item_count
              FROM estimates WHERE user_id = $1 ORDER BY updated_at DESC`,
             [req.user.id]
         );
