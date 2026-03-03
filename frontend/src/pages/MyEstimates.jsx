@@ -506,7 +506,7 @@ function EstimateCard({
                     </div>
                 ) : isLoadConfirm ? (
                     <div className="me-del-confirm">
-                        <span className="me-del-question" style={{ color: 'var(--accent)' }}>Load this? It replaces current workspace.</span>
+                        <span className="me-del-question" style={{ color: 'var(--accent)' }}>Load estimate? Unsaved work will be lost.</span>
                         <button className="me-footer-btn me-footer-btn--primary" onClick={() => onLoad(est.id)}>
                             <FolderOpen size={12} /> Confirm
                         </button>
