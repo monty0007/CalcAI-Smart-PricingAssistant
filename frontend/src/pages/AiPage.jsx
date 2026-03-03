@@ -392,7 +392,7 @@ async function generateChatTitle(query) {
 // ── Main page ─────────────────────────────────────────────────────────
 export default function AiPage() {
     const { currency, addItem } = useEstimate();
-    const { user, token } = useAuth();
+    const { user, token, loading: authLoading } = useAuth();
     const navigate = useNavigate();
     const hasAI = Boolean(AI_ENDPOINT && AI_API_KEY);
 
@@ -419,8 +419,10 @@ export default function AiPage() {
     }, [messages, loading]);
 
     useEffect(() => {
-        loadChatList();
-    }, [token]);
+        if (!authLoading) {
+            loadChatList();
+        }
+    }, [token, authLoading]);
 
     async function loadChatList() {
         try {

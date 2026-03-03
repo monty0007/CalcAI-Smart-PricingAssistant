@@ -14,7 +14,9 @@ router.use(authenticateToken);
 router.get('/', async (req, res) => {
     try {
         const result = await query(
-            'SELECT id, name, total_cost, currency, created_at, updated_at FROM estimates WHERE user_id = $1 ORDER BY updated_at DESC',
+            `SELECT id, name, total_cost, currency, created_at, updated_at,
+                    jsonb_array_length(items) AS item_count
+             FROM estimates WHERE user_id = $1 ORDER BY updated_at DESC`,
             [req.user.id]
         );
         res.json(result.rows);

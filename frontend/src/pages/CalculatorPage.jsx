@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Search, Plus, ShoppingCart, Package, Save, BookOpen, AlertCircle, Check, X } from 'lucide-react';
 import { SERVICE_FAMILIES, POPULAR_SERVICES, ICON_MAP } from '../data/serviceCatalog';
 import { useEstimate } from '../context/EstimateContext';
@@ -16,6 +16,11 @@ export default function CalculatorPage() {
     const { user, token } = useAuth();
     const [showMobileEstimate, setShowMobileEstimate] = useState(false);
     const [quotDrawerOpen, setQuotDrawerOpen] = useState(false);
+
+    // Resizer State
+    const [sidebarWidth, setSidebarWidth] = useState(360);
+    const [isResizing, setIsResizing] = useState(false);
+    const sidebarRef = useRef(null);
 
     // Modals
     const [showSaveModal, setShowSaveModal] = useState(false);
@@ -59,6 +64,40 @@ export default function CalculatorPage() {
             clearAll();
         }
     };
+
+    // --- Resizer Logic ---
+    const handleMouseDown = (e) => {
+        e.preventDefault();
+        setIsResizing(true);
+    };
+
+    const handleMouseMove = useCallback((e) => {
+        if (!isResizing) return;
+        // Calculate new width: viewport width - mouse X position
+        const newWidth = window.innerWidth - e.clientX;
+        // Constrain width between 300px and 600px
+        if (newWidth > 300 && newWidth < 800) {
+            setSidebarWidth(newWidth);
+        }
+    }, [isResizing]);
+
+    const handleMouseUp = useCallback(() => {
+        setIsResizing(false);
+    }, []);
+
+    useEffect(() => {
+        if (isResizing) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+        } else {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        }
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isResizing, handleMouseMove, handleMouseUp]);
 
     const confirmNewEstimate = () => {
         clearAll();
@@ -150,24 +189,22 @@ export default function CalculatorPage() {
                 <div className="services-header">
                     <h2>{selectedFamily || (searchQuery ? 'Search Results' : 'Featured Services')}</h2>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button
+                            className="header-action-btn"
+                            onClick={handleNewEstimate}
+                            title="New Estimate"
+                        >
+                            <Plus size={15} /> <span className="hide-mobile">New Estimate</span>
+                        </button>
                         {user && (
                             <button
-                                className="btn-secondary"
+                                className="header-action-btn primary"
                                 onClick={() => setQuotDrawerOpen(true)}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.85rem' }}
                                 title="My Quotations"
                             >
-                                <BookOpen size={16} /> <span className="hide-mobile">Quotations</span>
+                                <BookOpen size={15} /> <span className="hide-mobile">Quotations</span>
                             </button>
                         )}
-                        <button
-                            className="btn-outline"
-                            onClick={handleNewEstimate}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: '0.85rem', border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer' }}
-                        >
-                            <Plus size={16} /> <span className="hide-mobile">New Estimate</span>
-                        </button>
-                        <span className="count">{filteredServices.length} services</span>
                     </div>
                 </div>
 
@@ -214,16 +251,31 @@ export default function CalculatorPage() {
                 )}
             </main>
 
-            <div className={`estimate-sidebar-wrapper ${showMobileEstimate ? 'mobile-open' : ''}`}>
+            {/* Resizable Sidebar Wrapper */}
+            <div
+                className={`estimate-sidebar-wrapper ${showMobileEstimate ? 'mobile-open' : ''} ${isResizing ? 'resizing' : ''}`}
+                style={{ width: showMobileEstimate ? '100%' : sidebarWidth }}
+                ref={sidebarRef}
+            >
+                {/* Drag Handle */}
+                {!showMobileEstimate && (
+                    <div
+                        className="sidebar-resizer"
+                        onMouseDown={handleMouseDown}
+                    />
+                )}
+
                 <div
                     className="mobile-estimate-backdrop"
                     onClick={() => setShowMobileEstimate(false)}
                 />
-                <EstimatePanel
-                    onClose={() => setShowMobileEstimate(false)}
-                    quotDrawerOpen={quotDrawerOpen}
-                    setQuotDrawerOpen={setQuotDrawerOpen}
-                />
+                <div style={{ width: '100%', height: '100%', background: 'var(--bg-primary)' }}>
+                    <EstimatePanel
+                        onClose={() => setShowMobileEstimate(false)}
+                        quotDrawerOpen={quotDrawerOpen}
+                        setQuotDrawerOpen={setQuotDrawerOpen}
+                    />
+                </div>
             </div>
 
             {/* Mobile FAB */}
@@ -269,21 +321,17 @@ export default function CalculatorPage() {
             {/* New Estimate Confirm Modal */}
             {showNewConfirm && (
                 <div className="modal-overlay">
-                    <div className="modal-content" style={{ maxWidth: 400 }}>
-                        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                            <AlertCircle size={24} color="#e74c3c" />
-                            <div>
-                                <h3 style={{ margin: 0, marginBottom: '4px' }}>Clear current estimate?</h3>
-                                <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                                    This will clear your current active estimate ({items.length} items) and start a new one. Unsaved changes will be lost.
-                                </p>
-                            </div>
+                    <div className="modal-content" style={{ maxWidth: 420 }}>
+                        <div className="modal-danger-icon">
+                            <AlertCircle size={32} color="#ef4444" />
                         </div>
-                        <div className="modal-actions">
-                            <button className="btn-secondary" onClick={() => setShowNewConfirm(false)}>Cancel</button>
-                            <button className="btn-primary" onClick={confirmNewEstimate} style={{ background: '#e74c3c', color: 'white', border: 'none' }}>
-                                Clear & Start New
+                        <h3>Clear current estimate?</h3>
+                        <p>This will clear your active estimate ({items.length} item{items.length !== 1 ? 's' : ''}) and start fresh. Any unsaved changes will be lost.</p>
+                        <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
+                            <button className="btn-danger" onClick={confirmNewEstimate}>
+                                Clear &amp; Start New
                             </button>
+                            <button className="btn-secondary" onClick={() => setShowNewConfirm(false)}>Cancel</button>
                         </div>
                     </div>
                 </div>

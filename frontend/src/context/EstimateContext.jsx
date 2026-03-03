@@ -78,7 +78,12 @@ function estimateReducer(state, action) {
         case 'SET_REFRESHING':
             return { ...state, refreshing: action.payload };
         case 'REPLACE_ITEMS':
-            return { ...state, items: action.payload };
+            return {
+                ...state,
+                items: action.payload.items,
+                activeEstimateId: action.payload.id || null,
+                activeEstimateTitle: action.payload.title || null
+            };
         default:
             return state;
     }
@@ -206,8 +211,8 @@ export function EstimateProvider({ children }) {
         dispatch({ type: 'CLEAR_ALL' });
     }, []);
 
-    const replaceItems = useCallback((newItems) => {
-        dispatch({ type: 'REPLACE_ITEMS', payload: newItems });
+    const replaceItems = useCallback((newItems, id = null, title = null) => {
+        dispatch({ type: 'REPLACE_ITEMS', payload: { items: newItems, id, title } });
     }, []);
 
     const setActiveEstimate = useCallback((id, title) => {

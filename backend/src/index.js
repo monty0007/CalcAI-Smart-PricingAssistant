@@ -549,7 +549,8 @@ app.get('/api/estimates', authenticateToken, async (req, res) => {
  */
 app.post('/api/estimates', authenticateToken, async (req, res) => {
     try {
-        const { name, items, total_cost, currency } = req.body;
+        const { name, items, total_cost, totalCost, currency } = req.body;
+        const cost = total_cost ?? totalCost ?? 0;
         if (!name) return res.status(400).json({ error: 'name is required' });
         if (!items) return res.status(400).json({ error: 'items is required' });
         const { query } = await import('./db.js');
@@ -557,7 +558,7 @@ app.post('/api/estimates', authenticateToken, async (req, res) => {
             `INSERT INTO estimates (user_id, name, items, total_cost, currency)
              VALUES ($1, $2, $3, $4, $5)
              RETURNING id, name, total_cost, currency, created_at, updated_at`,
-            [req.user.id, name.trim(), JSON.stringify(items), total_cost || 0, currency || 'USD']
+            [req.user.id, name.trim(), JSON.stringify(items), cost, currency || 'USD']
         );
         res.status(201).json(result.rows[0]);
     } catch (err) {

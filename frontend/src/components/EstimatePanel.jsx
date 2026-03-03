@@ -58,7 +58,7 @@ export default function EstimatePanel() {
                 body: JSON.stringify({
                     ...(activeEstimateId ? {} : { name: saveName.trim() }),
                     items,
-                    totalCost: totalMonthlyCost,
+                    total_cost: totalMonthlyCost,
                     currency,
                 }),
             });
@@ -108,6 +108,25 @@ export default function EstimatePanel() {
         }
         setEditingId(null);
         setEditPrice('');
+    }
+
+    async function saveActiveEstimateName() {
+        if (!editNameValue.trim() || !activeEstimateId) return;
+        try {
+            setSaveMsg(null);
+            const res = await fetch(`${API_URL}/estimates/${activeEstimateId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ name: editNameValue.trim() })
+            });
+            if (!res.ok) throw new Error('Failed to rename estimate');
+            const updated = await res.json();
+            setActiveEstimate(updated.id, updated.name);
+            setEditingNameId(null);
+            toast.success('Estimate renamed');
+        } catch (err) {
+            toast.error(err.message);
+        }
     }
 
     function startEditName(item) {
@@ -244,7 +263,41 @@ export default function EstimatePanel() {
                 {activeEstimateId && (
                     <div className="active-estimate-banner">
                         <FileEdit size={14} />
-                        <span>Editing: <strong>{activeEstimateTitle}</strong></span>
+                        {editingNameId === 'BANNER' ? (
+                            <div className="me-rename-row" style={{ flex: 1, padding: 0, margin: 0, background: 'transparent' }}>
+                                <input
+                                    className="me-rename-input"
+                                    style={{ fontSize: '0.8rem', padding: '2px 6px', height: 24 }}
+                                    value={editNameValue}
+                                    onChange={e => setEditNameValue(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter') saveActiveEstimateName();
+                                        if (e.key === 'Escape') setEditingNameId(null);
+                                    }}
+                                    autoFocus
+                                />
+                                <button className="me-icon-btn me-icon-btn--confirm" style={{ width: 20, height: 20 }} onClick={saveActiveEstimateName}>
+                                    <Check size={12} />
+                                </button>
+                                <button className="me-icon-btn me-icon-btn--cancel" style={{ width: 20, height: 20 }} onClick={() => setEditingNameId(null)}>
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, overflow: 'hidden' }}>
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    Editing: <strong>{activeEstimateTitle}</strong>
+                                </span>
+                                <button
+                                    className="me-icon-btn"
+                                    title="Rename"
+                                    onClick={() => { setEditingNameId('BANNER'); setEditNameValue(activeEstimateTitle); }}
+                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 2 }}
+                                >
+                                    <Pencil size={12} />
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -440,13 +493,13 @@ export default function EstimatePanel() {
                                 onClick={handleOpenSaveForm}
                                 title={activeEstimateId ? "Update this estimate" : "Save this estimate"}
                             >
-                                <Save size={14} /> {activeEstimateId ? "Update Estimate" : "Save"}
+                                <Save size={13} /> {activeEstimateId ? "Update" : "Save"}
                             </button>
                             <button className="est-action-btn est-export-btn" onClick={handleExportExcel}>
-                                <Download size={14} /> Excel
+                                <Download size={13} /> Excel
                             </button>
                             <button className="est-action-btn est-clear-btn" onClick={clearAll}>
-                                <RotateCcw size={14} /> Clear
+                                <RotateCcw size={13} /> Clear
                             </button>
                         </div>
                     </div>

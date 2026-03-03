@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { LayoutDashboard, Bot, Sun, Moon, Home, Server } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { LayoutDashboard, Bot, Sun, Moon, Home, Server, UserCircle2, LogOut, ChevronDown } from 'lucide-react';
 import { EstimateProvider, useEstimate } from './context/EstimateContext';
 import { useAuth } from './context/AuthContext';
 import { AZURE_REGIONS } from './data/serviceCatalog';
@@ -17,6 +17,8 @@ function Navbar() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const isHome = location.pathname === '/';
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef(null);
 
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('azure-theme') || 'light';
@@ -26,6 +28,16 @@ function Navbar() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('azure-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const toggleTheme = () => {
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
@@ -77,12 +89,7 @@ function Navbar() {
           </NavLink>
         )}
 
-        {user && (
-          <div className="user-menu" style={{ fontSize: '0.85rem', fontWeight: 500, marginRight: 8 }}>
-            Hi, {user.name?.split(' ')[0] || 'User'}
-            <button onClick={logout} className="btn-link" style={{ marginLeft: 8, fontSize: '0.8rem', opacity: 0.8 }}>Logout</button>
-          </div>
-        )}
+
 
         {!isHome && location.pathname !== '/login' && (
           <>
@@ -116,6 +123,37 @@ function Navbar() {
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
           </>
+        )}
+
+        {user && (
+          <div className="user-profile-menu" ref={profileRef}>
+            <button
+              className="user-profile-trigger"
+              onClick={() => setProfileOpen(prev => !prev)}
+              title={user.name || 'Profile'}
+            >
+              <div className="user-avatar">
+                {user.photoURL
+                  ? <img src={user.photoURL} alt="avatar" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                  : <UserCircle2 size={22} />
+                }
+              </div>
+              <span className="user-name-label">{user.name?.split(' ')[0] || 'User'}</span>
+              <ChevronDown size={14} style={{ opacity: 0.6 }} />
+            </button>
+            {profileOpen && (
+              <div className="user-dropdown">
+                <div className="user-dropdown-info">
+                  <strong>{user.name?.split(' ')[0] || 'User'}</strong>
+                  <span>{user.email}</span>
+                </div>
+                <hr className="user-dropdown-divider" />
+                <button className="user-dropdown-item danger" onClick={() => { setProfileOpen(false); logout(); }}>
+                  <LogOut size={14} /> Logout
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </nav>

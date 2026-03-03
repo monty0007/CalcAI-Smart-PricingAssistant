@@ -392,12 +392,12 @@ export default function ServiceConfigModal({ service, onClose }) {
     // ── Render ───────────────────────────────────────
     return (
         <>
-            <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-overlay vm-config-overlay" onClick={onClose}>
                 <div className="modal-content vm-config-modal" onClick={e => e.stopPropagation()}>
                     <div className="modal-header">
-                        <div>
+                        <div className="modal-header-text">
                             <h2>{service.serviceName}</h2>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                            <p className="modal-description">
                                 {service.description}
                             </p>
                         </div>
@@ -450,13 +450,15 @@ export default function ServiceConfigModal({ service, onClose }) {
                                 Select Instance
                                 {!loading && ` (${filteredPricing.length})`}
                             </h4>
-                            <div style={{ marginBottom: 10, position: 'relative' }}>
-                                <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                            <div className="modal-field" style={{ position: 'relative', marginBottom: 16 }}>
+                                <Search size={14} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                                 <input
-                                    type="text" className="search-input"
-                                    style={{ paddingLeft: 36, fontSize: '0.8rem', padding: '9px 12px 9px 36px', borderRadius: 'var(--radius-md)' }}
+                                    type="text"
+                                    className="search-input"
+                                    style={{ paddingLeft: 40 }}
                                     placeholder="Search instances (e.g. D2, B1s, F4)..."
-                                    value={filterText} onChange={e => setFilterText(e.target.value)}
+                                    value={filterText}
+                                    onChange={e => setFilterText(e.target.value)}
                                 />
                             </div>
 
@@ -483,7 +485,7 @@ export default function ServiceConfigModal({ service, onClose }) {
                                     )}
                                 </div>
                             ) : (
-                                <div className="pricing-list" style={{ maxHeight: 200 }}>
+                                <div className="pricing-list">
                                     {filteredPricing.slice(0, 100).map((item, idx) => (
                                         <div
                                             key={idx}
@@ -720,11 +722,11 @@ export default function ServiceConfigModal({ service, onClose }) {
                     <div className="modal-footer">
                         <button className="btn-secondary" onClick={onClose}>Cancel</button>
                         <button className="btn-primary" onClick={handleAdd} disabled={!selectedItem}
-                            style={{ flex: 'none', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            style={{ flex: 'none', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 6, opacity: !selectedItem ? 0.5 : 1 }}>
                             <Plus size={16} /> Add More
                         </button>
                         <button className="btn-primary" onClick={handleAddAndClose} disabled={!selectedItem}
-                            style={{ flex: 'none', padding: '10px 24px' }}>
+                            style={{ flex: 'none', padding: '10px 24px', opacity: !selectedItem ? 0.5 : 1 }}>
                             Add & Close
                         </button>
                     </div>
