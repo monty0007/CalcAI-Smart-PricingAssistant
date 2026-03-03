@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { LayoutDashboard, Bot, Sun, Moon, Home, Server, UserCircle2, LogOut, ChevronDown } from 'lucide-react';
 import { EstimateProvider, useEstimate } from './context/EstimateContext';
@@ -16,6 +16,7 @@ function Navbar() {
   const { currency, setCurrency, region, setRegion, items } = useEstimate();
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const isHome = location.pathname === '/';
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
@@ -77,20 +78,6 @@ function Navbar() {
       </div>
 
       <div className="navbar-controls">
-        {!isHome && !user && location.pathname !== '/login' && (
-          <NavLink to="/login" className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.85rem', marginRight: 8 }}>
-            Login
-          </NavLink>
-        )}
-
-        {isHome && !user && (
-          <NavLink to="/login" className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.9rem' }}>
-            Sign In
-          </NavLink>
-        )}
-
-
-
         {!isHome && location.pathname !== '/login' && (
           <>
             <select
@@ -125,6 +112,24 @@ function Navbar() {
           </>
         )}
 
+        {/* Login Button positioned at the end (right corner) */}
+        {!user && location.pathname !== '/login' && (
+          <NavLink
+            to="/login"
+            className="btn-primary"
+            style={{
+              padding: isHome ? '8px 20px' : '6px 16px',
+              fontSize: '0.9rem',
+              marginLeft: 8,
+              background: 'var(--accent)', /* Ensure it uses the primary blue */
+              color: 'white',
+              border: 'none'
+            }}
+          >
+            {isHome ? 'Sign In' : 'Login'}
+          </NavLink>
+        )}
+
         {user && (
           <div className="user-profile-menu" ref={profileRef}>
             <button
@@ -148,7 +153,7 @@ function Navbar() {
                   <span>{user.email}</span>
                 </div>
                 <hr className="user-dropdown-divider" />
-                <button className="user-dropdown-item danger" onClick={() => { setProfileOpen(false); logout(); }}>
+                <button className="user-dropdown-item danger" onClick={() => { setProfileOpen(false); logout(); navigate('/'); }}>
                   <LogOut size={14} /> Logout
                 </button>
               </div>

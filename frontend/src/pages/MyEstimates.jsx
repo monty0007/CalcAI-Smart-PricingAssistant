@@ -14,7 +14,7 @@ import { saveAs } from 'file-saver';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function MyEstimates() {
-    const { user, token } = useAuth();
+    const { user, token, loading: authLoading } = useAuth();
     const { replaceItems, setCurrency } = useEstimate();
     const navigate = useNavigate();
 
@@ -34,9 +34,10 @@ export default function MyEstimates() {
     const [previewData, setPreviewData] = useState(null); // { id, name, items, total, currency }
 
     useEffect(() => {
-        if (!user) { navigate('/login'); return; }
+        if (authLoading) return;
+        if (!user) { navigate('/'); return; }
         fetchEstimates();
-    }, [user]);
+    }, [user, authLoading]);
 
     async function fetchEstimates() {
         try {

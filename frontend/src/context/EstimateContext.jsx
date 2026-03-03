@@ -117,6 +117,12 @@ export function EstimateProvider({ children }) {
             if (user.preferred_region && user.preferred_region !== state.region) {
                 dispatch({ type: 'SET_REGION', payload: user.preferred_region });
             }
+        } else {
+            // Clear estimate state on logout (except defaults)
+            dispatch({ type: 'CLEAR_ALL' });
+            localStorage.removeItem('azure_estimate_items');
+            localStorage.removeItem('azure_estimate_active_id');
+            localStorage.removeItem('azure_estimate_active_title');
         }
     }, [user?.id]); // Only run when user changes (login/logout/id change)
 

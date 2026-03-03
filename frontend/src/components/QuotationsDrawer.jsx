@@ -42,6 +42,12 @@ export default function QuotationsDrawer({ open, onClose }) {
         if (open) fetchEstimates();
     }, [open, fetchEstimates]);
 
+    useEffect(() => {
+        if (!user) {
+            setEstimates([]);
+        }
+    }, [user]);
+
     async function handleDelete(id) {
         try {
             await fetch(`${API_URL}/estimates/${id}`, {
