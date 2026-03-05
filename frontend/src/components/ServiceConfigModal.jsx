@@ -63,8 +63,8 @@ const DISK_TIERS = [
 ];
 
 // ── Component ────────────────────────────────────────
-export default function ServiceConfigModal({ service, onClose }) {
-    const { addItem, currency, region } = useEstimate();
+export default function ServiceConfigModal({ service, onClose, editItem = null }) {
+    const { addItem, updateItem, currency, region } = useEstimate();
     const vmMode = isVMLike(service.serviceName);
 
     // Core state
@@ -140,6 +140,30 @@ export default function ServiceConfigModal({ service, onClose }) {
             .catch(() => { });
     }, [selectedRegion, currency, vmMode]);
 
+    // ── Restore state for Editing ───────────────────
+    useEffect(() => {
+        if (editItem) {
+            setQuantity(editItem.quantity || 1);
+            setHoursPerMonth(editItem.hoursPerMonth || 730);
+
+            if (editItem.location) {
+                // simple mapping back to code if armRegionName was used
+                const rName = editItem.location.toLowerCase();
+                const matchedRegion = AZURE_REGIONS.find(r => r.code === rName || r.name.toLowerCase() === rName);
+                if (matchedRegion) {
+                    setSelectedRegion(matchedRegion.code);
+                }
+            }
+
+            if (editItem.meterName) {
+                const lowerMeter = editItem.meterName.toLowerCase();
+                if (lowerMeter.includes('1 year')) setPricingModel('r1y');
+                else if (lowerMeter.includes('3 year')) setPricingModel('r3y');
+                else setPricingModel('payg');
+            }
+        }
+    }, [editItem]);
+
     // ── Filter options from data ────────────────────
     const filterOptions = useMemo(() => {
         const categories = new Set();
@@ -162,15 +186,39 @@ export default function ServiceConfigModal({ service, onClose }) {
         };
     }, [allData, vmMode]);
 
-    // Reset filters on data change
+    // Reset filters on data change ONLY IF NOT EDITING
     useEffect(() => {
-        setSelectedCategory('All');
-        setSelectedSeries('All');
-        setSelectedOS('All');
-        setFilterText('');
-        setPricingModel('payg');
-        setHybridBenefit(false);
-    }, [allData]);
+        if (!editItem) {
+            setSelectedCategory('All');
+            setSelectedSeries('All');
+            setSelectedOS('All');
+            setFilterText('');
+            setPricingModel('payg');
+            setHybridBenefit(false);
+        } else if (allData.length > 0) {
+            // Pre-filter based on the item being edited
+            const cat = extractCategory(editItem.productName, editItem.serviceName);
+            setSelectedCategory(filterOptions.categories.includes(cat) ? cat : 'All');
+
+            if (vmMode) {
+                const series = extractSeries(editItem.productName);
+                setSelectedSeries(filterOptions.series.includes(series) ? series : 'All');
+
+                const os = detectOS(editItem.productName);
+                setSelectedOS(filterOptions.osTypes.includes(os) ? os : 'All');
+            }
+
+            // Try to find the exact item to select
+            const matchedItem = allData.find(i =>
+                i.skuName === editItem.skuName &&
+                i.productName === editItem.productName &&
+                i.type === 'Consumption' // we match base instance
+            );
+            if (matchedItem) {
+                setSelectedItem(matchedItem);
+            }
+        }
+    }, [allData, editItem, filterOptions, vmMode]);
 
     // ── Filtered PAYG items for instance selection ──
     const filteredPricing = useMemo(() => {
@@ -204,12 +252,12 @@ export default function ServiceConfigModal({ service, onClose }) {
             .sort((a, b) => a.retailPrice - b.retailPrice);
     }, [allData, selectedCategory, selectedSeries, selectedOS, filterText, vmMode]);
 
-    // Auto-select first
+    // Auto-select first if not editing
     useEffect(() => {
-        if (filteredPricing.length > 0 && !filteredPricing.includes(selectedItem)) {
+        if (!editItem && filteredPricing.length > 0 && !filteredPricing.includes(selectedItem)) {
             setSelectedItem(filteredPricing[0]);
         }
-    }, [filteredPricing]);
+    }, [filteredPricing, editItem, selectedItem]);
 
     // ── Reservation prices for selected instance ────
     const reservationPrices = useMemo(() => {
@@ -339,14 +387,12 @@ export default function ServiceConfigModal({ service, onClose }) {
         }
     }, [filteredDisks]);
 
-    // ── Add to estimate ──────────────────────────────
-    function handleAdd() {
+    // ── Add or Update to estimate ────────────────────
+    function handleSaveItem() {
         if (!selectedItem) return;
 
-        const items = [];
-
-        // Compute
-        items.push({
+        // Base item properties
+        const itemConfig = {
             serviceName: selectedItem.serviceName,
             productName: selectedItem.productName,
             skuName: selectedItem.skuName,
@@ -358,34 +404,42 @@ export default function ServiceConfigModal({ service, onClose }) {
             currencyCode: selectedItem.currencyCode,
             quantity,
             hoursPerMonth,
-        });
+        };
 
-        // OS cost is now inherently added to the Compute item above if applicable (hybridBenefit toggled false).
+        if (editItem) {
+            // Update existing single instance
+            updateItem(editItem.id, itemConfig);
+        } else {
+            // Add new instances
+            const itemsToSave = [];
+            itemsToSave.push(itemConfig);
 
-        // Managed Disks
-        if (selectedDisk && diskCount > 0) {
-            items.push({
-                serviceName: 'Managed Disks',
-                productName: selectedDisk.productName,
-                skuName: selectedDisk.skuName,
-                meterName: selectedDisk.meterName,
-                retailPrice: selectedDisk.retailPrice,
-                unitOfMeasure: selectedDisk.unitOfMeasure,
-                armRegionName: selectedDisk.armRegionName,
-                location: selectedDisk.location,
-                currencyCode: selectedDisk.currencyCode,
-                quantity: diskCount,
-                hoursPerMonth: 730,
-            });
+            // Add disks as a separate item if needed
+            if (selectedDisk && diskCount > 0) {
+                itemsToSave.push({
+                    serviceName: 'Managed Disks',
+                    productName: selectedDisk.productName,
+                    skuName: selectedDisk.skuName,
+                    meterName: selectedDisk.meterName,
+                    retailPrice: selectedDisk.retailPrice,
+                    unitOfMeasure: selectedDisk.unitOfMeasure,
+                    armRegionName: selectedDisk.armRegionName,
+                    location: selectedDisk.location,
+                    currencyCode: selectedDisk.currencyCode,
+                    quantity: diskCount,
+                    hoursPerMonth: 730,
+                });
+            }
+            itemsToSave.forEach(i => addItem(i));
         }
 
-        items.forEach(item => addItem(item));
+
         setToast(true);
         setTimeout(() => setToast(false), 2000);
     }
 
-    function handleAddAndClose() {
-        handleAdd();
+    function handleSaveAndClose() {
+        handleSaveItem();
         setTimeout(() => onClose(), 300);
     }
 
@@ -721,13 +775,15 @@ export default function ServiceConfigModal({ service, onClose }) {
 
                     <div className="modal-footer">
                         <button className="btn-secondary" onClick={onClose}>Cancel</button>
-                        <button className="btn-primary" onClick={handleAdd} disabled={!selectedItem}
-                            style={{ flex: 'none', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 6, opacity: !selectedItem ? 0.5 : 1 }}>
-                            <Plus size={16} /> Add More
-                        </button>
-                        <button className="btn-primary" onClick={handleAddAndClose} disabled={!selectedItem}
+                        {!editItem && (
+                            <button className="btn-primary" onClick={handleSaveItem} disabled={!selectedItem}
+                                style={{ flex: 'none', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 6, opacity: !selectedItem ? 0.5 : 1 }}>
+                                <Plus size={16} /> Add More
+                            </button>
+                        )}
+                        <button className="btn-primary" onClick={handleSaveAndClose} disabled={!selectedItem}
                             style={{ flex: 'none', padding: '10px 24px', opacity: !selectedItem ? 0.5 : 1 }}>
-                            Add & Close
+                            {editItem ? 'Update & Close' : 'Add & Close'}
                         </button>
                     </div>
                 </div>

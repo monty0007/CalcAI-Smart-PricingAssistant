@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check, Save, X, LogIn, FileEdit } from 'lucide-react';
+import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check, Save, X, LogIn, FileEdit, Settings } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
 import { useAuth } from '../context/AuthContext';
 import { formatPrice } from '../services/azurePricingApi';
@@ -21,7 +21,7 @@ function generateEstimateTitle(items) {
     return `${label} — ${monthYear}`;
 }
 
-export default function EstimatePanel() {
+export default function EstimatePanel({ onEditItem }) {
     const {
         items, currency, removeItem, updateItem,
         clearAll, totalMonthlyCost, refreshing,
@@ -325,43 +325,30 @@ export default function EstimatePanel() {
                                 <div className="estimate-item-header">
                                     <div style={{ flex: 1, marginRight: 12 }}>
                                         <div className="estimate-item-name" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                            {editingNameId === item.id ? (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', marginBottom: 4 }}>
-                                                    <input
-                                                        autoFocus
-                                                        value={editNameValue}
-                                                        onChange={e => setEditNameValue(e.target.value)}
-                                                        onKeyDown={e => { if (e.key === 'Enter') saveCustomName(item.id); if (e.key === 'Escape') setEditingNameId(null); }}
-                                                        style={{ flex: 1, padding: '2px 6px', fontSize: '0.85rem', borderRadius: 4, border: '1px solid var(--border-primary)', minWidth: 100 }}
-                                                        placeholder="Custom name..."
-                                                    />
-                                                    <button onClick={() => saveCustomName(item.id)} style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', display: 'flex', padding: 2 }}><Check size={14} /></button>
-                                                    <button onClick={() => setEditingNameId(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}><X size={14} /></button>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    {item.customName ? (
-                                                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{item.customName}</span>
-                                                    ) : null}
-                                                    <span style={{ color: item.customName ? 'var(--text-secondary)' : 'var(--text-primary)', fontSize: item.customName ? '0.8rem' : 'inherit' }}>
-                                                        {item.customName ? `(${item.serviceName})` : item.serviceName}
-                                                    </span>
-                                                    <button onClick={() => startEditName(item)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'flex', opacity: 0.6 }} title="Edit Custom Name">
-                                                        <Pencil size={12} />
-                                                    </button>
-                                                </>
-                                            )}
+                                            <span style={{ color: 'var(--text-primary)' }}>
+                                                {item.serviceName}
+                                            </span>
                                         </div>
                                         <div className="estimate-item-sku">{item.skuName || item.meterName}</div>
                                         <div className="estimate-item-sku">{item.location || item.armRegionName}</div>
                                     </div>
-                                    <button
-                                        className="estimate-item-remove"
-                                        onClick={() => removeItem(item.id)}
-                                        title="Remove"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                        <button
+                                            className="estimate-item-remove"
+                                            onClick={() => onEditItem?.(item)}
+                                            title="Edit Configuration"
+                                            style={{ color: 'var(--accent)' }}
+                                        >
+                                            <Settings size={14} />
+                                        </button>
+                                        <button
+                                            className="estimate-item-remove"
+                                            onClick={() => removeItem(item.id)}
+                                            title="Remove"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="estimate-item-controls">

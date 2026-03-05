@@ -13,6 +13,26 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// ── Server-side in-process response cache (15-minute TTL) ────────────────────
+const SERVER_CACHE = new Map();
+const SERVER_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+function serverCacheGet(key) {
+    const entry = SERVER_CACHE.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.t > SERVER_CACHE_TTL) { SERVER_CACHE.delete(key); return null; }
+    return entry.d;
+}
+
+function serverCacheSet(key, data) {
+    // Limit to 200 entries to prevent unbounded growth
+    if (SERVER_CACHE.size >= 200) {
+        const firstKey = SERVER_CACHE.keys().next().value;
+        SERVER_CACHE.delete(firstKey);
+    }
+    SERVER_CACHE.set(key, { t: Date.now(), d: data });
+}
+
 // ── Middleware ───────────────────────────────────
 app.use(cors());
 app.use(express.json());
@@ -47,10 +67,17 @@ app.get('/api/prices', async (req, res) => {
             limit,
         } = req.query;
 
+        // Build a cache key from all significant query params
+        const cacheKey = `prices:${serviceName}:${region}:${currency}:${type}:${productName}:${skuName}:${searchText}:${limit}`;
+        const cached = serverCacheGet(cacheKey);
+        if (cached) {
+            res.set('X-Cache', 'HIT');
+            res.set('Cache-Control', 'public, max-age=900');
+            return res.json(cached);
+        }
+
         console.log(`[API] /prices requested - service: ${serviceName}, region: ${region}, search: "${searchText || ''}"`);
 
-        // Allow fetching all items if limit='all' or use provided number (default 200)
-        // Removing hard cap of 1000 to allow full data fetch
         const queryLimit = limit === 'all' ? 'all' : (parseInt(limit) || 200);
 
         const items = await queryPrices({
@@ -64,11 +91,11 @@ app.get('/api/prices', async (req, res) => {
             limit: queryLimit,
         });
 
-        res.json({
-            Items: items,
-            Count: items.length,
-            currency,
-        });
+        const response = { Items: items, Count: items.length, currency };
+        serverCacheSet(cacheKey, response);
+        res.set('X-Cache', 'MISS');
+        res.set('Cache-Control', 'public, max-age=900');
+        res.json(response);
     } catch (err) {
         console.error('Query error:', err);
         res.status(500).json({ error: 'Failed to query prices', message: err.message });
@@ -162,6 +189,10 @@ app.get('/api/vm-compare', async (req, res) => {
         const { skus, currency = 'USD', os = 'linux' } = req.query;
         if (!skus) return res.status(400).json({ error: 'skus parameter required' });
 
+        const cacheKey = `vm-compare:${skus}:${currency}:${os}`;
+        const cached = serverCacheGet(cacheKey);
+        if (cached) { res.set('X-Cache', 'HIT'); return res.json(cached); }
+
         const skuList = skus.split(',').map(s => s.trim()).filter(Boolean).slice(0, 2);
         const { query } = await import('./db.js');
 
@@ -195,7 +226,10 @@ app.get('/api/vm-compare', async (req, res) => {
             }));
         }
 
-        res.json({ currency, os, skus: skuList, regions: results });
+        const response = { currency, os, skus: skuList, regions: results };
+        serverCacheSet(cacheKey, response);
+        res.set('X-Cache', 'MISS');
+        res.json(response);
     } catch (err) {
         console.error('VM compare error:', err);
         res.status(500).json({ error: 'Failed to fetch comparison data', message: err.message });
@@ -314,6 +348,15 @@ app.get('/api/vm-list', async (req, res) => {
             minMemory, maxMemory
         } = req.query;
 
+        // Check server-side cache first
+        const cacheKey = `vm-list:${region}:${currency}:${search}:${limit}:${offset}:${minVcpu}:${maxVcpu}:${minMemory}:${maxMemory}`;
+        const cached = serverCacheGet(cacheKey);
+        if (cached) {
+            res.set('X-Cache', 'HIT');
+            res.set('Cache-Control', 'public, max-age=900');
+            return res.json(cached);
+        }
+
         console.log(`[API] /vm-list requested - search: "${search}", region: ${region}`);
 
         const safeLimit = Math.max(1, parseInt(limit) || 100);
@@ -323,17 +366,17 @@ app.get('/api/vm-list', async (req, res) => {
 
         // ── In-memory currency cache (5-min TTL) ─────────────────────
         const CURRENCY_CACHE = app._currencyCache || (app._currencyCache = new Map());
-        const cacheKey = currency.toUpperCase();
-        const cached = CURRENCY_CACHE.get(cacheKey);
+        const cacheKeyC = currency.toUpperCase();
+        const cachedC = CURRENCY_CACHE.get(cacheKeyC);
         let rate = 1.0;
-        if (cacheKey === 'USD') {
+        if (cacheKeyC === 'USD') {
             rate = 1.0;
-        } else if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
-            rate = cached.rate;
+        } else if (cachedC && Date.now() - cachedC.ts < 5 * 60 * 1000) {
+            rate = cachedC.rate;
         } else {
             const rateResult = await query(
                 `SELECT rate_from_usd FROM currency_rates WHERE currency_code = $1`,
-                [cacheKey]
+                [cacheKeyC]
             );
             if (rateResult.rows.length === 0) {
                 return res.status(400).json({
@@ -341,16 +384,9 @@ app.get('/api/vm-list', async (req, res) => {
                 });
             }
             rate = parseFloat(rateResult.rows[0].rate_from_usd);
-            CURRENCY_CACHE.set(cacheKey, { rate, ts: Date.now() });
+            CURRENCY_CACHE.set(cacheKeyC, { rate, ts: Date.now() });
         }
 
-        // ── 2. Query base USD prices from PostgreSQL ─────────────────
-        //    We aggregate Linux and Windows prices per SKU in one pass.
-        //    The azure_prices table stores prices in USD (currency_code='USD').
-        //    type field: 'Consumption' = pay-as-you-go
-        //
-        //    We identify OS by whether the product_name contains 'Windows';
-        //    rows without 'Windows' in the product_name are treated as Linux.
         const args = [region];
         let paramIdx = 2;
 
@@ -362,12 +398,7 @@ app.get('/api/vm-list', async (req, res) => {
             } else if (searchTerm.toLowerCase().startsWith('basic_')) {
                 searchTerm = searchTerm.substring(6);
             }
-
-            // Azure's raw API (and our DB) stores SKUs with spaces (e.g., 'B16pls v2')
-            // while ARM format uses underscores ('Standard_B16pls_v2').
             searchTerm = searchTerm.replace(/_/g, ' ');
-
-            // Use LOWER() LIKE instead of ILIKE so covered by expression index
             searchClause = `AND LOWER(sku_name) LIKE $${paramIdx}`;
             args.push(`%${searchTerm.toLowerCase()}%`);
             paramIdx++;
@@ -389,12 +420,8 @@ app.get('/api/vm-list', async (req, res) => {
             SELECT
                 CONCAT('Standard_', REPLACE(TRIM(a.sku_name), ' ', '_')) AS sku_key,
                 a.sku_name                                                AS raw_sku,
-
-                -- Linux price
                 MIN(CASE WHEN LOWER(p.product_name) NOT LIKE '%windows%'
                          THEN p.retail_price END)                         AS linux_usd,
-
-                -- Windows price
                 MIN(CASE WHEN LOWER(p.product_name) LIKE '%windows%'
                          THEN p.retail_price END)                         AS windows_usd
             FROM all_skus a
@@ -409,31 +436,18 @@ app.get('/api/vm-list', async (req, res) => {
             ORDER BY a.sku_name ASC
         `;
 
-        console.log('VM-LIST QUERY ARGS:', args, 'searchClause:', searchClause);
         const result = await query(sql, args);
 
-        // ── 3. Map DB rows ──────────────────────────────────────────
         const items = result.rows.map(row => {
             const skuName = row.sku_key;
-
-            // Apply currency rate (multiply base USD price)
             const linuxPrice = row.linux_usd != null ? +(row.linux_usd * rate).toFixed(6) : null;
             const windowsPrice = row.windows_usd != null ? +(row.windows_usd * rate).toFixed(6) : null;
-
-            return {
-                skuName,
-                region,
-                currency: currency.toUpperCase(),
-                linuxPrice,
-                windowsPrice,
-                specs: null
-            };
+            return { skuName, region, currency: currency.toUpperCase(), linuxPrice, windowsPrice, specs: null };
         });
 
         const paginatedItems = items.slice(safeOffset, Math.min(items.length, safeOffset + safeLimit));
 
-        // ── 4. Return Paginated Data ─────────────────────────────────
-        res.json({
+        const response = {
             region,
             currency: currency.toUpperCase(),
             exchangeRate: rate,
@@ -442,7 +456,12 @@ app.get('/api/vm-list', async (req, res) => {
             limit: safeLimit,
             offset: safeOffset,
             items: paginatedItems
-        });
+        };
+
+        serverCacheSet(cacheKey, response);
+        res.set('X-Cache', 'MISS');
+        res.set('Cache-Control', 'public, max-age=900');
+        res.json(response);
 
     } catch (err) {
         console.error('[/api/vm-list] Error:', err);
@@ -460,9 +479,12 @@ app.post('/api/vms/compare', async (req, res) => {
 
         if (!skus.length) return res.json({ items: [], currency, skus, regions });
 
+        const cacheKey = `vms-compare:${skus.sort().join(',')}:${regions.sort().join(',')}:${currency}`;
+        const cached = serverCacheGet(cacheKey);
+        if (cached) { res.set('X-Cache', 'HIT'); return res.json(cached); }
+
         const { query } = await import('./db.js');
 
-        // Get currency rate
         const rateRes = await query('SELECT rate_from_usd FROM currency_rates WHERE currency_code = $1', [currency]);
         const rate = rateRes.rows.length > 0 ? rateRes.rows[0].rate_from_usd : 1.0;
 
@@ -491,7 +513,6 @@ app.post('/api/vms/compare', async (req, res) => {
 
         const result = await query(sql, [...skus, ...regions]);
 
-        // Group by region
         const byRegion = {};
         for (const r of regions) byRegion[r] = { region: r };
 
@@ -505,12 +526,10 @@ app.post('/api/vms/compare', async (req, res) => {
             };
         }
 
-        res.json({
-            items: Object.values(byRegion),
-            currency,
-            skus,
-            regions
-        });
+        const response = { items: Object.values(byRegion), currency, skus, regions };
+        serverCacheSet(cacheKey, response);
+        res.set('X-Cache', 'MISS');
+        res.json(response);
 
     } catch (err) {
         console.error('Compare pricing error:', err);

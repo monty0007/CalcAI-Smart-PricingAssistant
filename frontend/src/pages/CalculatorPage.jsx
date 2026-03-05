@@ -12,6 +12,7 @@ export default function CalculatorPage() {
     const [selectedFamily, setSelectedFamily] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [configService, setConfigService] = useState(null);
+    const [editingItem, setEditingItem] = useState(null);
     const { items, totalMonthlyCost, currency, activeEstimateId, clearAll } = useEstimate();
     const { user, token } = useAuth();
     const [showMobileEstimate, setShowMobileEstimate] = useState(false);
@@ -136,7 +137,19 @@ export default function CalculatorPage() {
     }, []);
 
     const handleAddService = useCallback((service) => {
+        setEditingItem(null);
         setConfigService(service);
+    }, []);
+
+    const handleEditItem = useCallback((item) => {
+        // Find the matching base service so the modal knows what it is configuring
+        let baseService = POPULAR_SERVICES.find(s => s.serviceName === item.serviceName);
+        if (!baseService) {
+            baseService = { serviceName: item.serviceName, description: 'Re-configure service' };
+        }
+
+        setEditingItem(item);
+        setConfigService(baseService);
     }, []);
 
     return (
@@ -274,6 +287,7 @@ export default function CalculatorPage() {
                         onClose={() => setShowMobileEstimate(false)}
                         quotDrawerOpen={quotDrawerOpen}
                         setQuotDrawerOpen={setQuotDrawerOpen}
+                        onEditItem={handleEditItem}
                     />
                 </div>
             </div>
@@ -291,7 +305,11 @@ export default function CalculatorPage() {
             {configService && (
                 <ServiceConfigModal
                     service={configService}
-                    onClose={() => setConfigService(null)}
+                    editItem={editingItem}
+                    onClose={() => {
+                        setConfigService(null);
+                        setEditingItem(null);
+                    }}
                 />
             )}
 

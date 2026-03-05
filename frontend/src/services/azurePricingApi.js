@@ -3,8 +3,49 @@
 const BASE_URL = import.meta.env.VITE_API_URL || '/azproxy';
 const USE_BACKEND = !!import.meta.env.VITE_API_URL;
 
-const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// ── Two-tier cache: in-memory (fast) + localStorage (persistent across refreshes) ──────
+const memCache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const LS_PREFIX = 'azpc_';
+const MAX_LS_ENTRIES = 40; // guard against filling localStorage
+
+function lsGet(key) {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (Date.now() - entry.t > CACHE_TTL) { localStorage.removeItem(LS_PREFIX + key); return null; }
+    return entry.d;
+  } catch { return null; }
+}
+
+function lsSet(key, data) {
+  try {
+    // Evict oldest if over cap
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(LS_PREFIX));
+    if (keys.length >= MAX_LS_ENTRIES) {
+      let oldest = null, oldestTs = Infinity;
+      for (const k of keys) {
+        try { const e = JSON.parse(localStorage.getItem(k)); if (e.t < oldestTs) { oldest = k; oldestTs = e.t; } } catch { oldest = k; }
+      }
+      if (oldest) localStorage.removeItem(oldest);
+    }
+    localStorage.setItem(LS_PREFIX + key, JSON.stringify({ t: Date.now(), d: data }));
+  } catch { /* quota exceeded — ignore */ }
+}
+
+function cacheGet(key) {
+  const mem = memCache.get(key);
+  if (mem && Date.now() - mem.t < CACHE_TTL) return mem.d;
+  const ls = lsGet(key);
+  if (ls) { memCache.set(key, { t: Date.now(), d: ls }); return ls; }
+  return null;
+}
+
+function cacheSet(key, data) {
+  memCache.set(key, { t: Date.now(), d: data });
+  lsSet(key, data);
+}
 
 /**
  * Fetch prices from the backend or Azure API
@@ -12,10 +53,8 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 export async function fetchPrices(filters = {}, currencyCode = 'USD', maxItems = 200, includeAll = false) {
   const cacheKey = JSON.stringify({ filters, currencyCode, maxItems, includeAll });
 
-  const cached = cache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data;
-  }
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
 
   let items;
 
@@ -39,7 +78,7 @@ export async function fetchPrices(filters = {}, currencyCode = 'USD', maxItems =
     currency: currencyCode,
   };
 
-  cache.set(cacheKey, { data: result, timestamp: Date.now() });
+  cacheSet(cacheKey, result);
   return result;
 }
 
@@ -128,7 +167,12 @@ export async function fetchBandwidth(region = 'eastus', currency = 'USD') {
 }
 
 export function clearCache() {
-  cache.clear();
+  memCache.clear();
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(LS_PREFIX))
+      .forEach(k => localStorage.removeItem(k));
+  } catch { /* ignore */ }
 }
 
 export async function fetchBestVmPrices(currency = 'USD') {
