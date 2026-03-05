@@ -62,6 +62,17 @@ const DISK_TIERS = [
     { id: 'premium-ssd', label: 'Premium SSD', keyword: 'Premium SSD' },
 ];
 
+const SNAPSHOT_REDUNDANCY = [
+    { id: 'LRS', label: 'LRS' },
+    { id: 'ZRS', label: 'ZRS' }
+];
+
+const TRANSFER_TYPES = [
+    'Inter-Region',
+    'Internet Routing',
+    'Routing Preference'
+];
+
 // ── Component ────────────────────────────────────────
 export default function ServiceConfigModal({ service, onClose, editItem = null }) {
     const { addItem, updateItem, currency, region } = useEstimate();
@@ -95,6 +106,15 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     const [pricingModel, setPricingModel] = useState('payg');
     const [hybridBenefit, setHybridBenefit] = useState(false);
 
+    // OS License
+    const [osLicenseIncluded, setOsLicenseIncluded] = useState(true);
+    const [osHybridBenefit, setOsHybridBenefit] = useState(false);
+
+    // SQL / VM Type
+    const [vmType, setVmType] = useState('os-only');
+    const [sqlLicenseIncluded, setSqlLicenseIncluded] = useState(false);
+    const [sqlHybridBenefit, setSqlHybridBenefit] = useState(false);
+
     // Add-ons
     const [showDisks, setShowDisks] = useState(false);
     const [diskTier, setDiskTier] = useState('standard-hdd');
@@ -102,9 +122,20 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     const [selectedDisk, setSelectedDisk] = useState(null);
     const [diskCount, setDiskCount] = useState(0);
 
+    const [showSnapshot, setShowSnapshot] = useState(false);
+    const [snapshotSizeGB, setSnapshotSizeGB] = useState(0);
+    const [snapshotRedundancy, setSnapshotRedundancy] = useState('LRS');
+
+    const [showConfidential, setShowConfidential] = useState(false);
+    const [storageTransactionUnits, setStorageTransactionUnits] = useState(0);
+    const [showStorageTransactions, setShowStorageTransactions] = useState(false);
+
     const [showBandwidth, setShowBandwidth] = useState(false);
     const [bandwidthGB, setBandwidthGB] = useState(0);
     const [bandwidthData, setBandwidthData] = useState([]);
+    const [bandwidthTransferType, setBandwidthTransferType] = useState('Inter-Region');
+    const [bandwidthSourceRegion, setBandwidthSourceRegion] = useState(region);
+    const [bandwidthDestRegion, setBandwidthDestRegion] = useState('westus');
 
     // ── Fetch VM pricing ────────────────────────────
     useEffect(() => {
@@ -321,11 +352,6 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
             }
         }
 
-        // Add back OS cost if NOT using hybrid benefit
-        if (vmMode && osCost.extra > 0 && !hybridBenefit) {
-            return basePrice + osCost.extra;
-        }
-
         return basePrice;
     }
 
@@ -349,12 +375,32 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
         return Math.max(0, base) * quantity;
     })();
 
-    const osMonthly = 0; // OS cost is now folded directly into getComputeHourlyPrice()
+    const osLicenseMonthly = (() => {
+        if (!vmMode || osCost.os !== 'Windows' || osHybridBenefit || !osLicenseIncluded) return 0;
+        return osCost.extra * quantity * hoursPerMonth;
+    })();
+
+    const sqlLicenseMonthly = (() => {
+        if (!vmMode || vmType !== 'sql-server' || sqlHybridBenefit || !sqlLicenseIncluded) return 0;
+        const sqlCoreCount = selectedItem ? Math.max(4, selectedItem.cores || 4) : 4;
+        const sqlPricePerHour = 0.37 * sqlCoreCount;
+        return sqlPricePerHour * hoursPerMonth * quantity;
+    })();
 
     const diskMonthly = (() => {
         if (!selectedDisk || diskCount <= 0) return 0;
         return selectedDisk.retailPrice * diskCount;
     })();
+
+    const snapshotRate = snapshotRedundancy === 'ZRS' ? 0.065 : 0.05;
+    const snapshotMonthly = showSnapshot ? (snapshotSizeGB * snapshotRate) : 0;
+
+    const confidentialGiB = selectedItem ? selectedItem.ram || 0 : 0;
+    const confidentialPricePerHour = 0.01;
+    const confidentialMonthly = showConfidential ? (confidentialGiB * hoursPerMonth * confidentialPricePerHour) : 0;
+
+    const storageTxPricePer10k = 0.005;
+    const storageTxMonthly = storageTransactionUnits * storageTxPricePer10k;
 
     const bandwidthMonthly = (() => {
         if (bandwidthGB <= 0 || bandwidthData.length === 0) return 0;
@@ -366,7 +412,7 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
         return cheapest ? cheapest.retailPrice * billableGB : 0;
     })();
 
-    const totalMonthly = computeMonthly + diskMonthly + bandwidthMonthly;
+    const totalMonthly = computeMonthly + diskMonthly + snapshotMonthly + confidentialMonthly + storageTxMonthly + bandwidthMonthly + osLicenseMonthly + sqlLicenseMonthly;
 
     // ── Disk options filtered by tier ────────────────
     const filteredDisks = useMemo(() => {
@@ -430,6 +476,46 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                     hoursPerMonth: 730,
                 });
             }
+
+            if (showStorageTransactions && storageTransactionUnits > 0) {
+                itemsToSave.push({
+                    serviceName: 'Storage Transactions',
+                    productName: 'Storage Transactions',
+                    skuName: 'Storage Transactions',
+                    meterName: '10k Transactions',
+                    retailPrice: 0.005,
+                    unitOfMeasure: '10k',
+                    armRegionName: selectedItem.armRegionName,
+                    location: selectedItem.location,
+                    currencyCode: selectedItem.currencyCode,
+                    quantity: storageTransactionUnits,
+                    hoursPerMonth: 730,
+                });
+            }
+
+            if (showBandwidth && bandwidthGB > 0 && bandwidthData.length > 0) {
+                const billableGB = Math.max(0, bandwidthGB - 5);
+                const cheapest = bandwidthData
+                    .filter(b => b.type === 'Consumption' && b.retailPrice > 0)
+                    .sort((a, b) => a.retailPrice - b.retailPrice)[0];
+
+                if (cheapest && billableGB > 0) {
+                    itemsToSave.push({
+                        serviceName: 'Bandwidth',
+                        productName: cheapest.productName,
+                        skuName: cheapest.skuName,
+                        meterName: cheapest.meterName,
+                        retailPrice: cheapest.retailPrice,
+                        unitOfMeasure: cheapest.unitOfMeasure,
+                        armRegionName: cheapest.armRegionName,
+                        location: cheapest.location,
+                        currencyCode: cheapest.currencyCode,
+                        quantity: billableGB,
+                        hoursPerMonth: 730,
+                    });
+                }
+            }
+
             itemsToSave.forEach(i => addItem(i));
         }
 
@@ -661,71 +747,97 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                             </div>
                         )}
 
-                        {/* ── Section 6: Managed Disks ──────────── */}
-                        {selectedItem && vmMode && (
-                            <div className="addon-section">
-                                <button className="addon-toggle" onClick={() => setShowDisks(!showDisks)}>
-                                    <HardDrive size={14} />
-                                    Managed Disks
-                                    <span className="addon-cost">{formatPrice(diskMonthly, currency)}</span>
-                                    {showDisks ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                </button>
-                                {showDisks && (
-                                    <div className="addon-body">
-                                        <div className="config-grid">
-                                            <div className="modal-field">
-                                                <label>Tier</label>
-                                                <select value={diskTier} onChange={e => setDiskTier(e.target.value)}>
-                                                    {DISK_TIERS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="modal-field">
-                                                <label>Disk Size</label>
-                                                <select value={selectedDisk?.skuId || ''} onChange={e => {
-                                                    const d = filteredDisks.find(d => d.skuId === e.target.value);
-                                                    if (d) setSelectedDisk(d);
-                                                }}>
-                                                    {filteredDisks.map(d => (
-                                                        <option key={d.skuId} value={d.skuId}>
-                                                            {d.meterName} — {formatPrice(d.retailPrice, currency)}/mo
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            <div className="modal-field">
-                                                <label>Number of Disks</label>
-                                                <input type="number" min="0" value={diskCount}
-                                                    onChange={e => setDiskCount(Math.max(0, parseInt(e.target.value) || 0))} />
+                        {/* ── Section 6: Add-ons ────────────────── */}
+                        {vmMode && (
+                            <div className="modal-section" style={{ marginTop: 8 }}>
+                                <h4>Add-ons</h4>
+
+                                {/* Managed Disks */}
+                                <div className="addon-section">
+                                    <button className="addon-toggle" onClick={() => setShowDisks(!showDisks)}>
+                                        <HardDrive size={14} />
+                                        Managed Disks
+                                        <span className="addon-cost">{formatPrice(diskMonthly, currency)}</span>
+                                        {showDisks ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
+                                    {showDisks && (
+                                        <div className="addon-body">
+                                            <div className="config-grid">
+                                                <div className="modal-field">
+                                                    <label>Tier</label>
+                                                    <select value={diskTier} onChange={e => setDiskTier(e.target.value)}>
+                                                        {DISK_TIERS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="modal-field">
+                                                    <label>Disk Size</label>
+                                                    <select value={selectedDisk?.skuId || ''} onChange={e => {
+                                                        const d = filteredDisks.find(d => d.skuId === e.target.value);
+                                                        if (d) setSelectedDisk(d);
+                                                    }}>
+                                                        {filteredDisks.map(d => (
+                                                            <option key={d.skuId} value={d.skuId}>
+                                                                {d.meterName} — {formatPrice(d.retailPrice, currency)}/mo
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div className="modal-field">
+                                                    <label>Number of Disks</label>
+                                                    <input type="number" min="0" value={diskCount}
+                                                        onChange={e => setDiskCount(Math.max(0, parseInt(e.target.value) || 0))} />
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
+
+                                {/* Storage Transactions */}
+                                <div className="addon-section">
+                                    <button className="addon-toggle" onClick={() => setShowStorageTransactions(!showStorageTransactions)}>
+                                        <HardDrive size={14} />
+                                        Storage Transactions
+                                        <span className="addon-cost">{formatPrice(storageTxMonthly, currency)}</span>
+                                        {showStorageTransactions ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
+                                    {showStorageTransactions && (
+                                        <div className="addon-body">
+                                            <div className="modal-field" style={{ maxWidth: 200 }}>
+                                                <label>Units (10,000s)</label>
+                                                <input type="number" min="0" value={storageTransactionUnits}
+                                                    onChange={e => setStorageTransactionUnits(Math.max(0, parseInt(e.target.value) || 0))} />
+                                            </div>
+                                            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                                                Estimated storage transactions per month. Current rate: {formatPrice(0.005, currency)} per 10,000.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Bandwidth */}
+                                <div className="addon-section">
+                                    <button className="addon-toggle" onClick={() => setShowBandwidth(!showBandwidth)}>
+                                        <Wifi size={14} />
+                                        Bandwidth
+                                        <span className="addon-cost">{formatPrice(bandwidthMonthly, currency)}</span>
+                                        {showBandwidth ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
+                                    {showBandwidth && (
+                                        <div className="addon-body">
+                                            <div className="modal-field" style={{ maxWidth: 200 }}>
+                                                <label>Outbound Data Transfer (GB/mo)</label>
+                                                <input type="number" min="0" value={bandwidthGB}
+                                                    onChange={e => setBandwidthGB(Math.max(0, parseInt(e.target.value) || 0))} />
+                                            </div>
+                                            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                                                First 5 GB/month is free. Inbound data transfer is always free.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
 
-                        {/* ── Section 7: Bandwidth ──────────────── */}
-                        {selectedItem && vmMode && (
-                            <div className="addon-section">
-                                <button className="addon-toggle" onClick={() => setShowBandwidth(!showBandwidth)}>
-                                    <Wifi size={14} />
-                                    Bandwidth
-                                    <span className="addon-cost">{formatPrice(bandwidthMonthly, currency)}</span>
-                                    {showBandwidth ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                </button>
-                                {showBandwidth && (
-                                    <div className="addon-body">
-                                        <div className="modal-field" style={{ maxWidth: 200 }}>
-                                            <label>Outbound Data Transfer (GB/mo)</label>
-                                            <input type="number" min="0" value={bandwidthGB}
-                                                onChange={e => setBandwidthGB(Math.max(0, parseInt(e.target.value) || 0))} />
-                                        </div>
-                                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
-                                            First 5 GB/month is free. Inbound data transfer is always free.
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                        )}
 
                         {/* ── Section 8: Cost Breakdown ─────────── */}
                         {selectedItem && (

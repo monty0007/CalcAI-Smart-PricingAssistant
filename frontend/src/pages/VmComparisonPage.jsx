@@ -231,9 +231,6 @@ export default function VmComparisonPage() {
         return r ? `${r.name} (${region})` : region;
     };
 
-    const updateDate = lastUpdate
-        ? lastUpdate.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
-        : '—';
 
     return (
         <div className="vm-page content-area">

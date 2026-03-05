@@ -737,6 +737,26 @@ body {
   opacity: 1;
 }
 
+.service-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.service-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+  transform: none;
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-primary);
+}
+
+.service-card.disabled:hover {
+  transform: none;
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-primary);
+}
+
 .featured-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
@@ -2418,7 +2438,7 @@ body {
   border: 1px solid var(--scm-border);
   border-radius: 20px;
   width: 100%;
-  max-width: 900px;
+  max-width: 1100px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -2528,7 +2548,7 @@ body {
 .vm-config-modal .modal-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   margin-bottom: 0;
 }
 
@@ -2621,7 +2641,7 @@ body {
 .vm-config-modal .pricing-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   max-height: 300px;
   overflow-y: auto;
   padding-right: 2px;
@@ -2659,9 +2679,14 @@ body {
 }
 
 .vm-config-modal .pricing-item.selected {
-  background: var(--scm-accent-bg);
+  background: var(--scm-card-hover);
   border-color: var(--scm-accent);
-  box-shadow: 0 0 0 1px var(--scm-accent-bg) inset;
+  box-shadow: 0 0 0 1.5px var(--scm-accent) inset;
+  color: var(--scm-text);
+}
+
+.vm-config-modal .pricing-item.selected .pricing-item-price {
+  color: var(--scm-text);
 }
 
 .vm-config-modal .pricing-item-info {
@@ -8235,6 +8260,35 @@ body {
   color: #fff;
 }
 
+.vm-config-modal .modal-body {
+  padding: 24px 32px 32px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.vm-config-modal .filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.vm-config-modal .filter-grid .modal-section {
+  gap: 8px;
+}
+
+.vm-config-modal .modal-section {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  padding: 16px;
+  border-radius: 12px;
+}
+
 .me-preview-body {
   padding: 20px 24px;
   overflow-y: auto;
@@ -8302,4 +8356,317 @@ body {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* ── VM Config Modal: New UI Elements ────────────────────────────── */
+
+/* Section label (uppercase, small, accent color) */
+.vm-config-modal .section-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+/* OS selector row */
+.vm-config-modal .os-options {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.vm-config-modal .os-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-primary);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  transition: border-color 0.18s, background 0.18s;
+  user-select: none;
+}
+
+.vm-config-modal .os-option input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.vm-config-modal .os-option .os-icon {
+  font-size: 1.1em;
+}
+
+.vm-config-modal .os-option.selected {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent);
+}
+
+.vm-config-modal .os-option:hover:not(.selected) {
+  border-color: var(--accent);
+  opacity: 0.85;
+}
+
+/* Sub-dialog (appears below OS/Type selection) */
+.vm-config-modal .sub-dialog {
+  margin-top: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.vm-config-modal .sub-dialog-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  letter-spacing: 0.03em;
+}
+
+/* License options inside sub-dialog */
+.vm-config-modal .license-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vm-config-modal .license-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border-primary);
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+
+.vm-config-modal .license-option input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.vm-config-modal .license-option.selected {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.07);
+}
+
+.vm-config-modal .license-badge {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.1);
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+/* Price formula display (e.g. 32 GiBs × 730 hrs × price = total) */
+.vm-config-modal .price-formula {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+.vm-config-modal .formula-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.vm-config-modal .formula-value {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-primary);
+}
+
+.vm-config-modal .formula-op {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.vm-config-modal .formula-eq {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.vm-config-modal .formula-total {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+/* Toggle row (checkbox + label inline) */
+.vm-config-modal .toggle-row {
+  display: flex;
+  align-items: center;
+}
+
+.vm-config-modal .toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.vm-config-modal .toggle-label:hover {
+  color: var(--text-primary);
+}
+
+/* Hide native checkbox */
+.vm-config-modal .toggle-label input[type="checkbox"] {
+  display: none;
+}
+
+/* Custom toggle switch */
+.vm-config-modal .toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--border-primary);
+  border-radius: 20px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.vm-config-modal .toggle-switch::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.vm-config-modal .toggle-label input[type="checkbox"]:checked+.toggle-switch {
+  background: var(--accent);
+}
+
+.vm-config-modal .toggle-label input[type="checkbox"]:checked+.toggle-switch::after {
+  transform: translateX(16px);
+}
+
+/* Addon section inside modal-section - spacing handled */
+.vm-config-modal .modal-section .addon-section {
+  margin-top: 0;
+}
+
+/* Cost breakdown lines */
+.vm-config-modal .cost-breakdown {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-top: 0;
+}
+
+.vm-config-modal .cost-breakdown h4 {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.vm-config-modal .cost-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vm-config-modal .cost-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.vm-config-modal .cost-line.cost-total {
+  border-top: 1px solid var(--border-primary);
+  padding-top: 10px;
+  margin-top: 4px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.vm-config-modal .cost-amount {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.vm-config-modal .cost-line.cost-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* Dark theme overrides for new elements */
+[data-theme="dark"] .vm-config-modal .sub-dialog {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(148, 163, 184, 0.12);
+}
+
+[data-theme="dark"] .vm-config-modal .license-option {
+  background: rgba(15, 23, 42, 0.4);
+  border-color: rgba(148, 163, 184, 0.12);
+}
+
+[data-theme="dark"] .vm-config-modal .license-option.selected {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+[data-theme="dark"] .vm-config-modal .addon-toggle {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+[data-theme="dark"] .vm-config-modal .addon-toggle:hover {
+  background: rgba(30, 41, 59, 0.8);
+}
+
+[data-theme="dark"] .vm-config-modal .addon-body {
+  background: rgba(8, 14, 30, 0.6);
+}
+
+[data-theme="dark"] .vm-config-modal .price-formula {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme="dark"] .vm-config-modal .cost-breakdown {
+  background: rgba(15, 23, 42, 0.4);
 }

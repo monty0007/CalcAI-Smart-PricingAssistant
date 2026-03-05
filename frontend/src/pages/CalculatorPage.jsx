@@ -226,12 +226,13 @@ export default function CalculatorPage() {
                         {filteredServices.map((service, idx) => {
                             const family = SERVICE_FAMILIES.find(f => f.id === service.serviceFamily);
                             const Icon = family ? ICON_MAP[family.icon] : Package;
+                            const isVM = service.serviceName === 'Virtual Machines';
                             return (
                                 <div
                                     key={`${service.serviceName}-${idx}`}
-                                    className="service-card"
-                                    onClick={() => handleAddService(service)}
-                                    style={{ cursor: 'pointer' }}
+                                    className={`service-card ${!isVM ? 'disabled' : ''}`}
+                                    onClick={() => isVM && handleAddService(service)}
+                                    style={{ cursor: isVM ? 'pointer' : 'not-allowed' }}
                                 >
                                     <div className="service-card-header">
                                         <div className="service-card-icon">
@@ -245,10 +246,20 @@ export default function CalculatorPage() {
                                         <span className="service-card-family">{service.serviceFamily}</span>
                                         <button
                                             className="add-btn"
-                                            onClick={() => handleAddService(service)}
+                                            onClick={(e) => {
+                                                if (!isVM) e.stopPropagation();
+                                                else handleAddService(service);
+                                            }}
+                                            disabled={!isVM}
                                         >
-                                            <Plus size={14} />
-                                            Add to Estimate
+                                            {isVM ? (
+                                                <>
+                                                    <Plus size={14} />
+                                                    Add to Estimate
+                                                </>
+                                            ) : (
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Coming Soon</span>
+                                            )}
                                         </button>
                                     </div>
                                 </div>
