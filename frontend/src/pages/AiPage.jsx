@@ -385,14 +385,14 @@ async function generateChatTitle(query) {
             const title = data.choices?.[0]?.message?.content?.trim();
             if (title) return title.replace(/^["']|["']$/g, '');
         }
-    } catch { }
+    } catch (err) { console.error('Title generation failed:', err); }
     return fallback;
 }
 
 // ── Main page ─────────────────────────────────────────────────────────
 export default function AiPage() {
     const { currency, addItem } = useEstimate();
-    const { user, token, loading: authLoading } = useAuth();
+    const { token, loading: authLoading } = useAuth();
     const navigate = useNavigate();
     const hasAI = Boolean(AI_ENDPOINT && AI_API_KEY);
 

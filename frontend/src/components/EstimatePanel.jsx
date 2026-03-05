@@ -3,7 +3,6 @@ import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check, Save, X, LogI
 import { useEstimate } from '../context/EstimateContext';
 import { useAuth } from '../context/AuthContext';
 import { formatPrice } from '../services/azurePricingApi';
-import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 import ExcelJS from 'exceljs';
@@ -28,7 +27,6 @@ export default function EstimatePanel({ onEditItem }) {
         activeEstimateId, activeEstimateTitle, setActiveEstimate
     } = useEstimate();
     const { user, token } = useAuth();
-    const navigate = useNavigate();
     const [editingId, setEditingId] = useState(null);
     const [editPrice, setEditPrice] = useState('');
 
@@ -127,16 +125,6 @@ export default function EstimatePanel({ onEditItem }) {
         } catch (err) {
             toast.error(err.message);
         }
-    }
-
-    function startEditName(item) {
-        setEditingNameId(item.id);
-        setEditNameValue(item.customName || '');
-    }
-
-    function saveCustomName(id) {
-        updateItem(id, { customName: editNameValue.trim() });
-        setEditingNameId(null);
     }
 
     async function handleExportExcel() {

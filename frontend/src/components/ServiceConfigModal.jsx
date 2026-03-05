@@ -107,13 +107,13 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     const [hybridBenefit, setHybridBenefit] = useState(false);
 
     // OS License
-    const [osLicenseIncluded, setOsLicenseIncluded] = useState(true);
-    const [osHybridBenefit, setOsHybridBenefit] = useState(false);
+    const [osLicenseIncluded] = useState(true);
+    const [osHybridBenefit] = useState(false);
 
     // SQL / VM Type
-    const [vmType, setVmType] = useState('os-only');
-    const [sqlLicenseIncluded, setSqlLicenseIncluded] = useState(false);
-    const [sqlHybridBenefit, setSqlHybridBenefit] = useState(false);
+    const [vmType] = useState('os-only');
+    const [sqlLicenseIncluded] = useState(false);
+    const [sqlHybridBenefit] = useState(false);
 
     // Add-ons
     const [showDisks, setShowDisks] = useState(false);
@@ -133,9 +133,6 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     const [showBandwidth, setShowBandwidth] = useState(false);
     const [bandwidthGB, setBandwidthGB] = useState(0);
     const [bandwidthData, setBandwidthData] = useState([]);
-    const [bandwidthTransferType, setBandwidthTransferType] = useState('Inter-Region');
-    const [bandwidthSourceRegion, setBandwidthSourceRegion] = useState(region);
-    const [bandwidthDestRegion, setBandwidthDestRegion] = useState('westus');
 
     // ── Fetch VM pricing ────────────────────────────
     useEffect(() => {
@@ -460,7 +457,6 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
             const itemsToSave = [];
             itemsToSave.push(itemConfig);
 
-            // Add disks as a separate item if needed
             if (selectedDisk && diskCount > 0) {
                 itemsToSave.push({
                     serviceName: 'Managed Disks',
@@ -476,6 +472,40 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                     hoursPerMonth: 730,
                 });
             }
+
+
+            if (showSnapshot && snapshotSizeGB > 0) {
+                itemsToSave.push({
+                    serviceName: 'Managed Disks',
+                    productName: `Snapshot (${snapshotRedundancy})`,
+                    skuName: `Disk Snapshot`,
+                    meterName: `Snapshot Storage`,
+                    retailPrice: snapshotRate,
+                    unitOfMeasure: 'GB',
+                    armRegionName: selectedItem.armRegionName,
+                    location: selectedItem.location,
+                    currencyCode: selectedItem.currencyCode,
+                    quantity: snapshotSizeGB,
+                    hoursPerMonth: 730,
+                });
+            }
+
+            if (showConfidential) {
+                itemsToSave.push({
+                    serviceName: 'Managed Disks',
+                    productName: 'Confidential OS Encryption',
+                    skuName: 'Confidential Encryption',
+                    meterName: 'RAM Encryption',
+                    retailPrice: confidentialPricePerHour,
+                    unitOfMeasure: 'GiB',
+                    armRegionName: selectedItem.armRegionName,
+                    location: selectedItem.location,
+                    currencyCode: selectedItem.currencyCode,
+                    quantity: confidentialGiB,
+                    hoursPerMonth: 730,
+                });
+            }
+
 
             if (showStorageTransactions && storageTransactionUnits > 0) {
                 itemsToSave.push({
@@ -787,6 +817,70 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                                                     <input type="number" min="0" value={diskCount}
                                                         onChange={e => setDiskCount(Math.max(0, parseInt(e.target.value) || 0))} />
                                                 </div>
+                                            </div>
+
+                                            {/* Sub-addon 1: Snapshots */}
+                                            <div className="sub-addon">
+                                                <label className="toggle-row">
+                                                    <input type="checkbox" checked={showSnapshot} onChange={e => setShowSnapshot(e.target.checked)} />
+                                                    <span>Add Snapshot</span>
+                                                    <div className="info-tooltip">
+                                                        <Info size={12} />
+                                                        <span className="tooltip-text">Snapshots provide a full, read-only copy of a managed disk.</span>
+                                                    </div>
+                                                </label>
+                                                {showSnapshot && (
+                                                    <div className="sub-addon-fields">
+                                                        <div className="modal-field">
+                                                            <label>Snapshot Redundancy</label>
+                                                            <select value={snapshotRedundancy} onChange={e => setSnapshotRedundancy(e.target.value)}>
+                                                                <option value="LRS">LRS - Locally Redundant</option>
+                                                                <option value="ZRS">ZRS - Zone Redundant</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="modal-field">
+                                                            <label>Size of snapshot (GB)</label>
+                                                            <input type="number" min="0" value={snapshotSizeGB}
+                                                                onChange={e => setSnapshotSizeGB(Math.max(0, parseInt(e.target.value) || 0))} />
+                                                        </div>
+                                                        <div className="price-formula">
+                                                            <span className="formula-value">{snapshotSizeGB}</span>
+                                                            <span className="formula-label">GB</span>
+                                                            <span className="formula-op">×</span>
+                                                            <span className="formula-value">{formatPrice(snapshotRate, currency)}</span>
+                                                            <span className="formula-label">Per GB</span>
+                                                            <span className="formula-eq">=</span>
+                                                            <span className="formula-total">{formatPrice(snapshotMonthly, currency)}</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Sub-addon 2: Confidential OS Encryption */}
+                                            <div className="sub-addon">
+                                                <label className="toggle-row">
+                                                    <input type="checkbox" checked={showConfidential} onChange={e => setShowConfidential(e.target.checked)} />
+                                                    <span>Enable Confidential OS Encryption</span>
+                                                    <div className="info-tooltip">
+                                                        <Info size={12} />
+                                                        <span className="tooltip-text">Confidential computing VMs encrypt data in use, which includes the OS disk.</span>
+                                                    </div>
+                                                </label>
+                                                {showConfidential && (
+                                                    <div className="sub-addon-fields">
+                                                        <div className="price-formula">
+                                                            <span className="formula-value">{confidentialGiB}</span>
+                                                            <span className="formula-label">GiBs</span>
+                                                            <span className="formula-op">×</span>
+                                                            <span className="formula-value">730</span>
+                                                            <span className="formula-label">Hours</span>
+                                                            <span className="formula-op">×</span>
+                                                            <span className="formula-value">{formatPrice(confidentialPricePerHour, currency)}</span>
+                                                            <span className="formula-eq">=</span>
+                                                            <span className="formula-total">{formatPrice(confidentialMonthly, currency)}</span>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     )}

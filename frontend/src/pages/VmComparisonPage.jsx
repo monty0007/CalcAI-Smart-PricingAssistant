@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { Search, ArrowLeft, X, Check, ChevronDown, Download, SlidersHorizontal, Info, ArrowUp, ArrowDown } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
-import { fetchVmList, fetchVmComparison, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES, fetchBestVmPrices } from '../services/azurePricingApi';
+import { fetchVmList, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES, fetchBestVmPrices } from '../services/azurePricingApi';
 import { AZURE_REGIONS } from '../data/serviceCatalog';
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ export default function VmComparisonPage() {
     const [loadError, setLoadError] = useState(null);
     const [sortConfig, setSortConfig] = useState({ key: 'linuxPrice', direction: 'asc' });
     const [selectedSkus, setSelectedSkus] = useState([]);
-    const [isComparing, setIsComparing] = useState(false);
+
     const [showPricingCard, setShowPricingCard] = useState(false);
     const [pricingPeriod, setPricingPeriod] = useState('monthly');
     const [customHours, setCustomHours] = useState(730);
@@ -230,7 +230,6 @@ export default function VmComparisonPage() {
         const r = AZURE_REGIONS.find(x => x.code === region);
         return r ? `${r.name} (${region})` : region;
     };
-
 
     return (
         <div className="vm-page content-area">

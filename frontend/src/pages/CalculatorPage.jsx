@@ -13,7 +13,7 @@ export default function CalculatorPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [configService, setConfigService] = useState(null);
     const [editingItem, setEditingItem] = useState(null);
-    const { items, totalMonthlyCost, currency, activeEstimateId, clearAll } = useEstimate();
+    const { items, totalMonthlyCost, currency, clearAll } = useEstimate();
     const { user, token } = useAuth();
     const [showMobileEstimate, setShowMobileEstimate] = useState(false);
     const [quotDrawerOpen, setQuotDrawerOpen] = useState(false);
