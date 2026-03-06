@@ -142,6 +142,10 @@ export async function deleteChat(id, token) {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
     });
-    if (!res.ok) throw new Error('Failed to delete chat');
+    if (!res.ok) {
+        let errMsg = 'Failed to delete chat';
+        try { const errData = await res.json(); if (errData.error) errMsg = errData.error; } catch (e) { }
+        throw new Error(errMsg);
+    }
     return res.json();
 }

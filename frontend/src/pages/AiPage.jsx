@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Download, Plus, RefreshCw, FileSpreadsheet, ChevronRight, ArrowLeft, Trash2 } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Download, Plus, RefreshCw, FileSpreadsheet, ChevronRight, ArrowLeft, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { fetchServicePricing, formatPrice, searchPrices, fetchVmList, calculateEstimate } from '../services/azurePricingApi';
 import { fetchChats, fetchChat, createChat, updateChat, deleteChat } from '../services/aiChatsApi';
@@ -423,10 +423,10 @@ async function generateChatTitle(query) {
             body: JSON.stringify({
                 model: AI_MODEL,
                 messages: [
-                    { role: 'system', content: 'Summarize the given Azure pricing query into a short title (max 4 words). Focus entirely on the Azure Services requested. Exclude greetings, quotes, or conversational fluff. If only a greeting, reply "New Chat".' },
+                    { role: 'system', content: 'Generate a brief, concise title (2-4 words) for this Azure pricing conversation based on the user prompt. DO NOT use quotes or conversational filler. If the user only says "hi" or a greeting, return "New Chat".' },
                     { role: 'user', content: query }
                 ],
-                max_tokens: 10,
+                max_tokens: 15,
                 temperature: 0.3
             }),
         });
@@ -449,6 +449,7 @@ export default function AiPage() {
     const [chatList, setChatList] = useState([]);
     const [currentChatId, setCurrentChatId] = useState(null);
     const [showSidebar, setShowSidebar] = useState(false);
+    const [chatToDelete, setChatToDelete] = useState(null);
 
     const initialMessage = {
         id: 0,
@@ -501,17 +502,26 @@ export default function AiPage() {
     }
 
     async function handleDeleteChat(id, e) {
+        e.preventDefault();
         e.stopPropagation();
+        setChatToDelete(id);
+    }
+
+    async function confirmDelete() {
+        if (!chatToDelete) return;
+
         try {
-            await deleteChat(id, token);
-            setChatList(prev => prev.filter(c => String(c.id) !== String(id)));
-            if (String(currentChatId) === String(id)) {
+            await deleteChat(chatToDelete, token);
+            setChatList(prev => prev.filter(c => String(c.id) !== String(chatToDelete)));
+            if (String(currentChatId) === String(chatToDelete)) {
                 handleNewChat();
             }
             toast.success('Chat deleted');
         } catch (e) {
             console.error(e);
-            toast.error('Failed to delete chat');
+            toast.error('Failed to delete chat: ' + e.message);
+        } finally {
+            setChatToDelete(null);
         }
     }
 
@@ -709,7 +719,18 @@ export default function AiPage() {
             // Save to DB / LocalStorage
             try {
                 if (currentChatId) {
-                    await updateChat(currentChatId, null, currentMsgs, token);
+                    const currentChat = chatList.find(c => String(c.id) === String(currentChatId));
+                    let newTitle = null;
+                    if (currentChat && currentChat.title === 'New Chat' && query.length > 5 && !query.toLowerCase().startsWith('hi')) {
+                        const generatedTitle = await generateChatTitle(query);
+                        if (generatedTitle !== 'New Chat') {
+                            newTitle = generatedTitle;
+                        }
+                    }
+                    await updateChat(currentChatId, newTitle, currentMsgs, token);
+                    if (newTitle) {
+                        await loadChatList();
+                    }
                 } else {
                     const title = await generateChatTitle(query);
                     const newChat = await createChat(title, currentMsgs, token);
@@ -765,8 +786,8 @@ export default function AiPage() {
                         chatList.map(chat => (
                             <div key={chat.id} className={`ai-history-btn ${String(currentChatId) === String(chat.id) ? 'active' : ''}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }} onClick={() => handleLoadChat(chat.id)}>
                                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>{chat.title}</span>
-                                <button className="ai-history-delete-btn" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px' }} onClick={(e) => handleDeleteChat(chat.id, e)} title="Delete chat">
-                                    <Trash2 size={12} />
+                                <button className="ai-history-delete-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }} onClick={(e) => handleDeleteChat(chat.id, e)} title="Delete chat">
+                                    <Trash2 size={14} />
                                 </button>
                             </div>
                         ))
@@ -788,14 +809,7 @@ export default function AiPage() {
                 {/* ── Header ──────────────────────────────────────── */}
                 <div className="ai-header-wrapper">
                     <div className="ai-header">
-                        <button
-                            className="ai-back-btn"
-                            onClick={() => navigate('/dashboard')}
-                            title="Back to Dashboard"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '6px', borderRadius: '8px' }}
-                        >
-                            <ArrowLeft size={20} />
-                        </button>
+
                         <div className="ai-header__icon" style={{ cursor: 'pointer' }} onClick={() => setShowSidebar(!showSidebar)}>
                             <Sparkles size={20} />
                         </div>
@@ -929,6 +943,29 @@ export default function AiPage() {
                     </p>
                 </div>
             </div>
+
+            {/* Delete Confirmation Modal */}
+            {chatToDelete && (
+                <div className="ai-modal-backdrop" onClick={() => setChatToDelete(null)}>
+                    <div className="ai-modal" onClick={e => e.stopPropagation()}>
+                        <div className="ai-modal-header">
+                            <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Delete Chat</h3>
+                            <button className="ai-modal-close" onClick={() => setChatToDelete(null)}>
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="ai-modal-body">
+                            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                Are you sure you want to delete this chat? This action cannot be undone.
+                            </p>
+                        </div>
+                        <div className="ai-modal-footer">
+                            <button className="btn btn-secondary" onClick={() => setChatToDelete(null)}>Cancel</button>
+                            <button className="btn btn-danger" onClick={confirmDelete}>Delete</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -136,10 +136,11 @@ Open **http://localhost:5173** 🎉
 The application functions comprehensively as an end-to-end pricing and estimation tool. 
 
 **Where we are right now:**
-- Authentication works securely.
-- The PostgreSQL database handles huge Azure queries seamlessly.
-- The AI responds perfectly to highly complex architectural estimates and remembers past conversations correctly.
-- A custom brand logo and responsive navbar are implemented, complete with dark/light mode context swapping and browser favicon updates.
+- Authentication works securely with persistent Estimate memory stored in the database for logged-in users and `localStorage` for guests.
+- The PostgreSQL database handles huge Azure queries seamlessly with refined metername relaxations to support diverse SKUs like D8s v5 without error.
+- The AI responds perfectly to highly complex architectural estimates and remembers past conversations correctly, heavily leveraging enforced tool-calling to eliminate pricing hallucinations.
+- AI Chat sessions cleanly auto-generate high-quality titles based on user queries instead of defaulting to "New Chat", and the chat deletion flow has robust event safety.
+- A custom brand logo and responsive navbar are implemented. The AI Chat interface is highly responsive, utilizing modern CSS `clamp()` capabilities to ensure beautiful text scaling across mobile and desktop devices.
 - The `backend/tests/` folder was created to cleanly organize the litany of data inspection scripts.
 - The python `initial_pricing_load.py` script was patched with absolute paths to ensure `.env` loads in any environment.
 

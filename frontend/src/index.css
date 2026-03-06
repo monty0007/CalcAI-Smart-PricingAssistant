@@ -4354,14 +4354,14 @@ body {
 }
 
 .ai-header__title {
-  font-size: 1.15rem;
+  font-size: clamp(1.1rem, 2.5vw, 1.4rem);
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
 }
 
 .ai-header__sub {
-  font-size: 0.8rem;
+  font-size: clamp(0.8rem, 1.5vw, 0.95rem);
   color: var(--text-muted);
   margin: 2px 0 0;
 }
@@ -4405,7 +4405,7 @@ body {
 }
 
 .ai-suggestions__label {
-  font-size: 0.8rem;
+  font-size: clamp(0.8rem, 1vw + 0.4rem, 0.95rem);
   color: var(--text-muted);
   margin-bottom: 12px;
 }
@@ -4421,12 +4421,12 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: clamp(6px, 1.5vw, 10px) clamp(10px, 2vw, 16px);
   border-radius: 20px;
   border: 1px solid var(--border-primary);
   background: var(--bg-card);
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: clamp(0.82rem, 1vw + 0.6rem, 0.95rem);
   cursor: pointer;
   transition: all .15s ease;
 }
@@ -4473,9 +4473,9 @@ body {
 /* Bubbles */
 .ai-bubble {
   max-width: 82%;
-  padding: 12px 16px;
+  padding: clamp(10px, 2vw, 14px) clamp(12px, 2.5vw, 18px);
   border-radius: 14px;
-  font-size: 0.88rem;
+  font-size: clamp(0.88rem, 1vw + 0.6rem, 1.05rem);
   line-height: 1.65;
 }
 
@@ -4498,7 +4498,7 @@ body {
 
 .ai-bubble__text .md-heading {
   display: block;
-  font-size: 0.93rem;
+  font-size: clamp(0.93rem, 1.2vw + 0.6rem, 1.15rem);
   margin: 8px 0 4px;
 }
 
@@ -4510,7 +4510,7 @@ body {
   background: rgba(0, 0, 0, .08);
   border-radius: 4px;
   padding: 1px 5px;
-  font-size: 0.83rem;
+  font-size: clamp(0.83rem, 1vw + 0.5rem, 0.95rem);
   font-family: monospace;
 }
 
@@ -4586,34 +4586,35 @@ body {
 
 .ai-price-card__header {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 
 .ai-price-card__name {
-  font-size: 0.78rem;
+  font-size: clamp(0.78rem, 1vw + 0.5rem, 0.95rem);
   font-weight: 600;
   color: var(--text-primary);
-  word-break: break-all;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .ai-price-card__price {
-  font-size: 0.9rem;
+  font-size: clamp(0.85rem, 1.2vw + 0.5rem, 1rem);
   font-weight: 700;
   color: #22c55e;
   white-space: nowrap;
 }
 
 .ai-price-card__unit {
-  font-size: 0.7rem;
+  font-size: clamp(0.7rem, 1vw + 0.4rem, 0.8rem);
   color: var(--text-muted);
   font-weight: 400;
 }
 
 .ai-price-card__sub {
-  font-size: 0.72rem;
+  font-size: clamp(0.72rem, 1vw + 0.4rem, 0.82rem);
   color: var(--text-muted);
   margin-bottom: 8px;
   line-height: 1.4;
@@ -6373,6 +6374,21 @@ body {
 .ai-history-btn:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+.ai-history-delete-btn {
+  color: var(--text-muted);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.ai-history-delete-btn:hover {
+  color: var(--danger);
+  transform: scale(1.15);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 /* ── Main content area ── */
@@ -8776,6 +8792,70 @@ body {
 
 [data-theme="dark"] .vm-config-modal .addon-toggle {
   background: rgba(15, 23, 42, 0.4);
+}
+
+/* ── AI Delete Confirmation Modal ── */
+.ai-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease-out forwards;
+}
+
+.ai-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.ai-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ai-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all var(--transition-fast);
+}
+
+.ai-modal-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.ai-modal-body {
+  padding: 20px;
+}
+
+.ai-modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: var(--bg-tertiary);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
 }
 
 [data-theme="dark"] .vm-config-modal .addon-toggle:hover {
