@@ -92,8 +92,17 @@ router.post('/calculate_estimate', async (req, res) => {
                     }
 
                     if (!isSpot) {
-                        sql += ` AND product_name NOT ILIKE '%Spot%' AND product_name NOT ILIKE '%Low Priority%'
-                                 AND sku_name NOT ILIKE '%Spot%' AND sku_name NOT ILIKE '%Low Priority%'`;
+                        sql += ` AND product_name NOT ILIKE '%Spot%'
+                                 AND product_name NOT ILIKE '%Low Priority%'
+                                 AND product_name NOT ILIKE '%Promo%'
+                                 AND product_name NOT ILIKE '%Dedicated Host%'
+                                 AND sku_name NOT ILIKE '%Spot%'
+                                 AND sku_name NOT ILIKE '%Low Priority%'`;
+                    }
+
+                    if (!isReserved) {
+                        // For PAYG, ensure it's not a Windows reservation base row
+                        sql += ` AND raw_data->>'meterName' NOT ILIKE '%Windows%'`;
                     }
 
                     if (item.sku) {
@@ -105,13 +114,12 @@ router.post('/calculate_estimate', async (req, res) => {
 
                     sql += ` AND retail_price > 0 ORDER BY retail_price ASC LIMIT 1`;
 
-                    console.log('VM SQL:', sql, args);
-                    const dbResult = await query(sql, args);
+                    const res = await query(sql, args);
                     let itemCost = 0;
                     let osNote = '';
 
-                    if (dbResult.rows.length > 0) {
-                        const row = dbResult.rows[0];
+                    if (res.rows.length > 0) {
+                        const row = res.rows[0];
                         if (is1Year) {
                             itemCost = (row.retail_price / 12) * qty * rate;
                         } else if (is3Year) {
@@ -155,7 +163,9 @@ router.post('/calculate_estimate', async (req, res) => {
                     breakdown.push({
                         name: item.name || `VM – ${item.sku || 'Unknown'}`,
                         cost: parseFloat(itemCost.toFixed(2)),
-                        note: (dbResult.rows[0]?.sku_name || 'no match') + osNote
+                        note: res.rows.length > 0
+                            ? (res.rows[0].sku_name + osNote)
+                            : 'No pricing match found'
                     });
                     total += itemCost;
                     break;
@@ -290,6 +300,11 @@ router.post('/calculate_estimate', async (req, res) => {
                         sql += ` AND raw_data->>'meterName' ILIKE $1`;
                         args.push(`%Zone ${zone}%`);
                     }
+
+                    // Exclude inbound transfer and peering meters — only outbound egress applies
+                    sql += ` AND (raw_data->>'meterName') NOT ILIKE '%Inbound%'
+                      AND (raw_data->>'meterName') NOT ILIKE '%Peering%'
+                      AND (raw_data->>'meterName') NOT ILIKE '%Ingress%'`;
 
                     sql += ` AND retail_price > 0 ORDER BY retail_price ASC LIMIT 1`;
 

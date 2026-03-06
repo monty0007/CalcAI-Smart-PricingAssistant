@@ -61,6 +61,25 @@ function parseQuery(query) {
     return { matchedService, region, intent, query };
 }
 
+// ── Detect if message is a pricing-related query ────────────────────
+function isPricingQuery(messages) {
+    // Look at the last user message
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    if (!lastUser) return false;
+    const text = (typeof lastUser.content === 'string' ? lastUser.content : '').toLowerCase();
+    const pricingKeywords = [
+        'vm', 'virtual machine', 'price', 'pricing', 'cost', 'how much', 'estimate',
+        'disk', 'bandwidth', 'storage', 'compute', 'instance', 'server', 'database',
+        'monthly', 'annual', 'yearly', 'per hour', 'per month', 'inr', 'usd', 'eur',
+        'windows', 'linux', 'd2s', 'd4s', 'd8s', 'd16s', 'b2ms', 'b4ms', 'f4', 'f8', 'e4', 'e8',
+        'e2s', 'e4s', 'e8s', 'standard_d', 'standard_f', 'standard_e', 'standard_b',
+        'central india', 'east us', 'west us', 'centralindia', 'eastus', 'westus',
+        'southindia', 'westeurope', 'eastasia', 'reserved', 'reservation', 'payg',
+        'managed disk', 'ssd', 'hdd', 'premium', 'lrs', 'zrs', 'sku', 'tier'
+    ];
+    return pricingKeywords.some(kw => text.includes(kw));
+}
+
 // ── AI call ──────────────────────────────────────────────────────────
 async function callAI(messages, pricingContext, currency, depth = 0, _toolResult = null, signal = null) {
     if (!AI_ENDPOINT || !AI_API_KEY) return { text: null, toolResult: null };
@@ -68,48 +87,73 @@ async function callAI(messages, pricingContext, currency, depth = 0, _toolResult
 
     const systemMsg = {
         role: 'system',
-        content: `You are an expert Azure Pricing Assistant.
+        content: `You are an expert Azure Pricing Assistant powered by a live Azure pricing database.
 
-## ABSOLUTE RULES
-1. NEVER guess or estimate prices. ONLY report what the calculate_estimate tool returns.
-2. Decompose EVERY user query into typed line items BEFORE calling the tool.
-3. Call calculate_estimate ONCE with ALL items in a single items[] array. Never split into multiple calls.
-4. NEVER ask for confirmation. Parse and call the tool IMMEDIATELY.
-5. If the tool returns a note of "no match" for an item, tell the user that item couldn't be priced. Do NOT substitute a number.
-6. After tool returns data, respond with a Markdown pricing table.
+## ━━ PRIME DIRECTIVES (NEVER BREAK THESE) ━━
 
-## ITEM DECOMPOSITION RULES
-Every user query must be broken down into items with a \`type\` field. The backend routes ONLY on \`type\`.
+1. **NEVER guess, infer, or estimate ANY price.** All prices MUST come from the calculate_estimate tool only.
+2. **NEVER skip the tool.** Even for simple questions like "how much is a D2s v5?" — call the tool first.
+3. Call calculate_estimate ONCE with ALL items in a single \`items[]\` array. Never split into multiple calls.
+4. If the tool returns "no match" for an item, say so clearly. Never substitute a number.
+5. After the tool returns, respond with a Markdown pricing table.
+6. For greetings, general questions, or non-pricing topics — respond naturally without calling the tool.
+7. **NEVER write JSON arguments directly into your text response.** You MUST use the tool_calls array to invoke \`calculate_estimate\`.
+
+## ━━ MANDATORY ITEM CONVERSION ━━
+
+Convert ALL user input to structured items BEFORE calling the tool. No exceptions.
+
+### Example:
+User says: "D8s v5 Windows Central India"
+You produce:
+\`\`\`json
+{
+  "type": "vm",
+  "sku": "D8s v5",
+  "os": "windows",
+  "region": "centralindia",
+  "quantity": 1
+}
+\`\`\`
+
+## ━━ ITEM TYPES ━━
 
 ### type: "vm" — Virtual Machines
-- sku: extract SKU e.g. "D8s v5", "D4s_v3", "B2ms"  
+The backend pricing engine selects ONLY the PAYG compute meter (meterName must contain 'Hours').
+It automatically excludes: Spot, Low Priority, Promo, Dedicated Host meters.
+- sku: e.g. "D8s v5", "D4s_v3", "B2ms"
 - os: "windows" or "linux" (default "linux")
+  - Linux → excludes Windows product rows
+  - Windows → selects Windows product rows (PAYG) + calculates Windows surcharge on reservations
 - reservation: "1 Year", "3 Year", or "" for PAYG
 - region: Azure region slug e.g. "centralindia", "eastus"
-- quantity: number of instances (default 1)
-- IMPORTANT: Windows OS on a reserved VM is handled automatically by the backend — do NOT create a separate OS item. The backend calculates reservation base + Windows surcharge internally.
+- quantity: default 1
+- Windows reservations: backend handles surcharge automatically, do NOT add a separate OS item
 
 ### type: "managed_disk" — Managed Disks
-- diskType: "E10", "E15", "E20", "E30", "S4", "S10", "P10" etc.
-- diskTier: "Standard SSD", "Premium SSD", "Standard HDD"
-- diskRedundancy: "LRS" or "ZRS" (default "LRS"). NEVER use "GRS".
+The backend pricing engine selects ONLY the base disk capacity meter.
+It NEVER uses: Disk Mount, Snapshot, Burst, or Transaction meters.
+Only valid disk tiers: E* (Standard SSD), S* (Standard HDD), P* (Premium SSD)
+- diskType: "E10", "E15", "E20", "E30", "S4", "S10", "P10", "P20" etc.
+- diskTier: "Standard SSD", "Premium SSD", or "Standard HDD"
+- diskRedundancy: "LRS" or "ZRS" only. Default "LRS". NEVER use "GRS" or "GZRS".
 - region: Azure region slug
 - quantity: number of disks (default 1)
-- transactions: number of monthly disk transactions (default 0). If user mentions transactions or IOPS, set this.
-- IMPORTANT: Disks attached to a VM are ALWAYS separate items, never part of the VM item.
-- IMPORTANT: ONLY use standard disk sizes (e.g. S4, S10, E10, P10). NEVER include "Burst", "Snapshot", or "Disk Mount" variants — these are excluded from pricing.
+- transactions: monthly disk transactions for explicit I/O billing (default 0)
+- Disks are ALWAYS separate items from VMs — never combine
 
 ### type: "bandwidth" — Data Transfer / Bandwidth
+The backend selects ONLY outbound transfer meters. Inbound and peering meters are excluded.
 - transferType: "internet" or "inter-region"
-- sourceRegion: Azure region slug where traffic originates
-- destinationRegion: (optional) for inter-region transfers
+- sourceRegion: region where traffic originates
+- destinationRegion: only for inter-region
 - dataTransferGB: GB of outbound data
-- IMPORTANT: Bandwidth is ALWAYS a separate item, never part of a VM or other item.
+- Bandwidth is ALWAYS a separate item
 
 ### type: "ip_address" — Public IP Addresses
 - ipType: "Static" or "Dynamic" (default "Static")
 - region: Azure region slug
-- quantity: number of IPs (default 1)
+- quantity: default 1
 
 ### type: "defender" — Microsoft Defender for Cloud
 - serverCount: number of servers (default 1)
@@ -117,17 +161,19 @@ Every user query must be broken down into items with a \`type\` field. The backe
 ### type: "monitor" — Azure Monitor / Log Analytics
 - dataIngestionGB: daily ingestion GB (default 0.2)
 
-## STRUCTURED WORKLOAD FORMAT
-Users may paste workloads in a 4-line-per-service format:
-Line 1: Service Category → use to determine \`type\`
-Line 2: Service Type → use to determine \`type\`  
+## ━━ WORKLOAD FORMAT ━━
+
+When user pastes a workload (4-line format):
+Line 1: Service Category → determines \`type\`
+Line 2: Service Type → refines \`type\`
 Line 3: Custom Name → use as \`name\`
-Line 4: Description → parse config fields from this
+Line 4: Description → parse config fields
 
 Map: "Virtual Machines"→vm, "Managed Disks"→managed_disk, "Bandwidth"→bandwidth, "IP Addresses"→ip_address, "Microsoft Defender"→defender, "Azure Monitor"→monitor
 
-## OUTPUT FORMAT (after tool call returns)
-Use this Markdown table:
+## ━━ OUTPUT FORMAT ━━
+
+After the tool returns data, use this Markdown table:
 
 | Service | Description | Monthly Cost (${currency}) |
 |---------|-------------|---------------------------|
@@ -135,11 +181,11 @@ Use this Markdown table:
 
 **Grand Total: X.XX ${currency}/month**
 
-Brief 1-line summary of the infrastructure.
+One-line infrastructure summary.
 
 ${pricingContext ? `=== LIVE PRICING DATA ===\n${pricingContext}\n========================` : ''}
-User region context: extract from message. Default: centralindia.
-Target Currency: ${currency}. The tool returns values already in ${currency}. NEVER reconvert.`
+Default region: centralindia. Extract region from user message if mentioned.
+Currency: ${currency}. Tool already converts — NEVER reconvert.`
     };
 
     try {
@@ -191,7 +237,10 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
                     }
                 }
             ],
-            tool_choice: 'auto'
+            // Force tool use for pricing queries at depth 0 — prevents hallucination
+            tool_choice: depth === 0 && isPricingQuery(messages)
+                ? { type: 'function', function: { name: 'calculate_estimate' } }
+                : 'auto'
         };
 
         fetch(LOG_URL, {

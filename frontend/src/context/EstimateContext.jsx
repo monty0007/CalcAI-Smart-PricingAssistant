@@ -106,10 +106,12 @@ export function EstimateProvider({ children }) {
             console.error("Failed to save to localStorage:", err);
         }
     }, [state.items, state.currency, state.region, state.activeEstimateId, state.activeEstimateTitle]);
-    const { user, token } = useAuth();
+    const { user, token, loading } = useAuth();
 
     // Load user preferences on login
     useEffect(() => {
+        if (loading) return; // Wait for auth to initialize
+
         if (user) {
             if (user.preferred_currency && user.preferred_currency !== state.currency) {
                 dispatch({ type: 'SET_CURRENCY', payload: user.preferred_currency });
@@ -117,14 +119,10 @@ export function EstimateProvider({ children }) {
             if (user.preferred_region && user.preferred_region !== state.region) {
                 dispatch({ type: 'SET_REGION', payload: user.preferred_region });
             }
-        } else {
-            // Clear estimate state on logout (except defaults)
-            dispatch({ type: 'CLEAR_ALL' });
-            localStorage.removeItem('azure_estimate_items');
-            localStorage.removeItem('azure_estimate_active_id');
-            localStorage.removeItem('azure_estimate_active_title');
         }
-    }, [user?.id]); // Only run when user changes (login/logout/id change)
+        // We no longer clear localStorage here when user is null.
+        // This allows guest users to persist their estimates across refreshes.
+    }, [user?.id, loading]);
 
     const updatePreferences = useCallback(async (updates) => {
         if (!user || !token) return;

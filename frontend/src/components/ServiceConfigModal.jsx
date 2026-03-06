@@ -100,7 +100,7 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     // Filters
     const [selectedCategory, setSelectedCategory] = useState('All');
     const [selectedSeries, setSelectedSeries] = useState('All');
-    const [selectedOS, setSelectedOS] = useState('All');
+    const [selectedOS, setSelectedOS] = useState('Windows');
 
     // Pricing model
     const [pricingModel, setPricingModel] = useState('payg');
@@ -211,7 +211,7 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
         return {
             categories: ['All', ...Array.from(categories).sort()],
             series: ['All', ...Array.from(series).sort()],
-            osTypes: ['All', ...Array.from(osTypes).sort()],
+            osTypes: Array.from(osTypes).sort(),
         };
     }, [allData, vmMode]);
 
@@ -220,7 +220,7 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
         if (!editItem) {
             setSelectedCategory('All');
             setSelectedSeries('All');
-            setSelectedOS('All');
+            setSelectedOS('Windows');
             setFilterText('');
             setPricingModel('payg');
             setHybridBenefit(false);
@@ -234,7 +234,7 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                 setSelectedSeries(filterOptions.series.includes(series) ? series : 'All');
 
                 const os = detectOS(editItem.productName);
-                setSelectedOS(filterOptions.osTypes.includes(os) ? os : 'All');
+                setSelectedOS(filterOptions.osTypes.includes(os) ? os : 'Windows');
             }
 
             // Try to find the exact item to select
@@ -374,7 +374,7 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     })();
 
     const osLicenseMonthly = (() => {
-        if (!vmMode || osCost.os !== 'Windows' || osHybridBenefit || !osLicenseIncluded) return 0;
+        if (!vmMode || osCost.os !== 'Windows' || hybridBenefit || !osLicenseIncluded) return 0;
         return osCost.extra * quantity * hoursPerMonth;
     })();
 
@@ -770,7 +770,7 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                                 <div className="savings-options">
                                     <label className={`savings-option ${!hybridBenefit ? 'selected' : ''}`}>
                                         <input type="radio" checked={!hybridBenefit} onChange={() => setHybridBenefit(false)} />
-                                        <div className="savings-label">
+                                        <div className="savings-label" style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                                             <span>License included</span>
                                             <span className="savings-tag">+{formatPrice(osCost.extra * quantity * hoursPerMonth, currency)}/mo</span>
                                         </div>
@@ -958,10 +958,18 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                                         <span>{formatPrice(computeMonthly, currency)}</span>
                                     </div>
                                     {vmMode && osCost.os !== 'Linux' && (
-                                        <div className="cost-line" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                            <span>License Option</span>
-                                            <span>{hybridBenefit ? 'Azure Hybrid Benefit' : 'License included'}</span>
-                                        </div>
+                                        <>
+                                            <div className="cost-line" style={{ fontSize: '0.9rem' }}>
+                                                <span>OS License ({osCost.os})</span>
+                                                <span>{formatPrice(osLicenseMonthly, currency)}</span>
+                                            </div>
+                                            {hybridBenefit && (
+                                                <div className="cost-line" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                                    <span>↳ Azure Hybrid Benefit applied</span>
+                                                    <span></span>
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                     {diskCount > 0 && (
                                         <div className="cost-line">
