@@ -6624,40 +6624,53 @@ body {
   .navbar {
     flex-wrap: wrap;
     height: auto;
-    padding: 8px 12px;
-    gap: 10px;
+    padding: 10px 12px 6px;
+    gap: 8px;
+    justify-content: space-between;
   }
 
   .navbar-brand {
-    flex: 1;
+    flex: 0 0 auto;
+  }
+
+  /* Wrap controls */
+  .navbar-controls {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 
   /* Stack main nav links horizontally with scroll */
   .navbar-links {
+    flex: 1 1 100%;
     order: 3;
     width: 100%;
     overflow-x: auto;
+    overflow-y: hidden;
     padding-bottom: 4px;
-    gap: 8px;
+    gap: 4px;
     display: flex;
     justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    /* Firefox */
+  }
+
+  .navbar-links::-webkit-scrollbar {
+    display: none;
+    /* Chrome, Safari, Edge */
   }
 
   .navbar-links a {
     white-space: nowrap;
     padding: 6px 12px;
-  }
-
-  /* Wrap controls */
-  .navbar-controls {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 6px;
+    flex-shrink: 0;
   }
 
   /* Dropdown selects */
   .select-control {
-    width: 120px;
+    width: 110px;
     font-size: 0.75rem;
     padding: 4px 20px 4px 6px;
   }
@@ -6665,22 +6678,28 @@ body {
   /* User menu */
   .user-menu {
     margin-right: 0 !important;
-    text-align: right;
+    padding: 2px !important;
   }
 
   /* Landing Page Overrides */
   .landing-hero {
-    padding: 60px 20px;
+    padding: 60px 16px;
     text-align: center;
   }
 
   .landing-title {
-    font-size: 2.2rem;
+    font-size: clamp(2rem, 8vw, 2.8rem);
   }
 
   .landing-cta {
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .landing-cta .btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .features-grid {
@@ -6694,23 +6713,116 @@ body {
   }
 
   /* Calculator / Dashboard Layout */
+  .main-layout {
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .content-area {
+    padding: 16px 12px;
+    width: 100%;
+    overflow-x: hidden;
+  }
+
   .category-sidebar {
     position: relative;
     width: 100%;
     height: auto;
-    max-height: 200px;
+    max-height: none;
     border-right: none;
     border-bottom: 1px solid var(--border-primary);
     top: 0;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 12px;
+    gap: 8px;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .category-sidebar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sidebar-title {
+    display: none;
+    /* Hide 'Categories' header on mobile */
+  }
+
+  .category-item {
+    flex: 0 0 auto;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    padding: 8px 12px;
+    white-space: nowrap;
+    border-radius: 8px;
+  }
+
+  .category-item.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--accent);
   }
 
   .featured-section,
   .catalog-section {
-    padding: 16px;
+    padding: 0;
+    width: 100%;
   }
 
   .catalog-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* Modal Constraints */
+  .vm-config-modal,
+  .ai-modal {
+    width: 95%;
+    max-width: 480px;
+    margin: 10px auto;
+    max-height: 90vh;
+    /* Prevent modal from exceeding screen height */
+  }
+
+  .modal-layout {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .modal-main,
+  .modal-sidebar {
+    width: 100%;
+    border-left: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  /* Dashboard / Saved Estimates Grid */
+  .my-est-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Typography Refinements for small screens */
+  .calc-bold {
+    font-size: clamp(20px, 6vw, 26px);
+  }
+
+  .sidebar-title {
+    font-size: clamp(0.55rem, 2vw, 0.68rem);
+  }
+
+  h1 {
+    font-size: clamp(1.6rem, 6vw, 2.2rem);
+  }
+
+  h2 {
+    font-size: clamp(1.4rem, 5vw, 1.8rem);
+  }
+
+  h3 {
+    font-size: clamp(1.1rem, 4vw, 1.3rem);
   }
 
   /* AI Assistant Layout */
@@ -6738,7 +6850,13 @@ body {
   }
 
   .ai-main {
-    height: calc(100vh - 100px);
+    height: 100vh;
+    /* Revert subtraction to allow full height */
+    padding-bottom: 20px;
+  }
+
+  .ai-input-area {
+    padding: 12px 16px 20px !important;
   }
 
   .estimate-sidebar-wrapper {
@@ -6775,6 +6893,20 @@ body {
     height: 100%;
     background: rgba(0, 0, 0, 0.5);
     z-index: 1;
+  }
+
+  /* Form Control Touch Targets */
+  .form-control,
+  .select-control {
+    padding-top: 10px;
+    padding-bottom: 10px;
+    font-size: 16px !important;
+    /* Prevents auto-zoom on iOS Safari */
+  }
+
+  .btn {
+    min-height: 44px;
+    /* Apple minimum touch target */
   }
 
   .estimate-sidebar-wrapper .estimate-panel {

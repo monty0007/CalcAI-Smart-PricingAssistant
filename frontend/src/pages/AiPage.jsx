@@ -488,13 +488,21 @@ export default function AiPage() {
     function handleNewChat() {
         setCurrentChatId(null);
         setMessages([{ ...initialMessage }]);
+        msgIdRef.current = 1;
     }
 
     async function handleLoadChat(id) {
         try {
             const chatObj = await fetchChat(id, token);
             setCurrentChatId(chatObj.id);
-            setMessages(chatObj.messages || []);
+            const loadedMsgs = chatObj.messages || [];
+            setMessages(loadedMsgs);
+            if (loadedMsgs.length > 0) {
+                const maxId = Math.max(...loadedMsgs.map(m => Number(m.id) || 0));
+                msgIdRef.current = isNaN(maxId) ? loadedMsgs.length + 1 : maxId + 1;
+            } else {
+                msgIdRef.current = 1;
+            }
         } catch (e) {
             console.error(e);
             toast.error('Failed to load chat');
