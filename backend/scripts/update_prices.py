@@ -76,7 +76,20 @@ def update_prices():
             
             if not items:
                 break
-                
+
+            # Filter out unwanted Managed Disk variants (Burst, Snapshot, Disk Mount)
+            items = [
+                i for i in items
+                if not (
+                    i.get('serviceName') == 'Storage'
+                    and 'Managed Disks' in (i.get('productName') or '')
+                    and any(
+                        kw in (i.get('skuName') or '').lower() or kw in (i.get('meterName') or '').lower()
+                        for kw in ['burst', 'snapshot', 'mount']
+                    )
+                )
+            ]
+
             batch_items.extend(items)
             stats["fetched"] += len(items)
             

@@ -226,13 +226,11 @@ export default function CalculatorPage() {
                         {filteredServices.map((service, idx) => {
                             const family = SERVICE_FAMILIES.find(f => f.id === service.serviceFamily);
                             const Icon = family ? ICON_MAP[family.icon] : Package;
-                            const isVM = service.serviceName === 'Virtual Machines';
                             return (
                                 <div
                                     key={`${service.serviceName}-${idx}`}
-                                    className={`service-card ${!isVM ? 'disabled' : ''}`}
-                                    onClick={() => isVM && handleAddService(service)}
-                                    style={{ cursor: isVM ? 'pointer' : 'not-allowed' }}
+                                    className="service-card"
+                                    onClick={() => handleAddService(service)}
                                 >
                                     <div className="service-card-header">
                                         <div className="service-card-icon">
@@ -247,19 +245,11 @@ export default function CalculatorPage() {
                                         <button
                                             className="add-btn"
                                             onClick={(e) => {
-                                                if (!isVM) e.stopPropagation();
-                                                else handleAddService(service);
+                                                e.stopPropagation();
+                                                handleAddService(service);
                                             }}
-                                            disabled={!isVM}
                                         >
-                                            {isVM ? (
-                                                <>
-                                                    <Plus size={14} />
-                                                    Add to Estimate
-                                                </>
-                                            ) : (
-                                                <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Coming Soon</span>
-                                            )}
+                                            <Plus size={14} /> Add to Estimate
                                         </button>
                                     </div>
                                 </div>

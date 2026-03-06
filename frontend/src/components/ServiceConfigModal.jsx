@@ -118,6 +118,7 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     // Add-ons
     const [showDisks, setShowDisks] = useState(false);
     const [diskTier, setDiskTier] = useState('standard-hdd');
+    const [diskRedundancy, setDiskRedundancy] = useState('LRS');
     const [diskData, setDiskData] = useState([]);
     const [selectedDisk, setSelectedDisk] = useState(null);
     const [diskCount, setDiskCount] = useState(0);
@@ -411,15 +412,22 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
 
     const totalMonthly = computeMonthly + diskMonthly + snapshotMonthly + confidentialMonthly + storageTxMonthly + bandwidthMonthly + osLicenseMonthly + sqlLicenseMonthly;
 
-    // ── Disk options filtered by tier ────────────────
+    // ── Disk options filtered by tier and redundancy ────────────────
     const filteredDisks = useMemo(() => {
         const tier = DISK_TIERS.find(t => t.id === diskTier);
         if (!tier) return [];
         return diskData
-            .filter(d => d.type === 'Consumption' && d.productName?.includes(tier.keyword) &&
-                d.unitOfMeasure?.toLowerCase().includes('month'))
+            .filter(d =>
+                d.type === 'Consumption' &&
+                d.productName?.includes(tier.keyword) &&
+                d.unitOfMeasure?.toLowerCase().includes('month') &&
+                !(d.skuName?.toLowerCase().includes('mount') || d.meterName?.toLowerCase().includes('mount')) &&
+                !(d.skuName?.toLowerCase().includes('burst') || d.meterName?.toLowerCase().includes('burst')) &&
+                !(d.skuName?.toLowerCase().includes('snapshot') || d.meterName?.toLowerCase().includes('snapshot')) &&
+                d.skuName?.includes(diskRedundancy)
+            )
             .sort((a, b) => a.retailPrice - b.retailPrice);
-    }, [diskData, diskTier]);
+    }, [diskData, diskTier, diskRedundancy]);
 
     // Auto-select first disk
     useEffect(() => {
@@ -800,6 +808,13 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                                                     </select>
                                                 </div>
                                                 <div className="modal-field">
+                                                    <label>Redundancy</label>
+                                                    <select value={diskRedundancy} onChange={e => setDiskRedundancy(e.target.value)}>
+                                                        <option value="LRS">LRS</option>
+                                                        <option value="ZRS">ZRS</option>
+                                                    </select>
+                                                </div>
+                                                <div className="modal-field">
                                                     <label>Disk Size</label>
                                                     <select value={selectedDisk?.skuId || ''} onChange={e => {
                                                         const d = filteredDisks.find(d => d.skuId === e.target.value);
@@ -821,9 +836,9 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
 
                                             {/* Sub-addon 1: Snapshots */}
                                             <div className="sub-addon">
-                                                <label className="toggle-row">
-                                                    <input type="checkbox" checked={showSnapshot} onChange={e => setShowSnapshot(e.target.checked)} />
-                                                    <span>Add Snapshot</span>
+                                                <label className="toggle-row custom-checkbox-row">
+                                                    <input type="checkbox" className="custom-checkbox" checked={showSnapshot} onChange={e => setShowSnapshot(e.target.checked)} />
+                                                    <span className="checkbox-label">Add Snapshot</span>
                                                     <div className="info-tooltip">
                                                         <Info size={12} />
                                                         <span className="tooltip-text">Snapshots provide a full, read-only copy of a managed disk.</span>
@@ -858,9 +873,9 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
 
                                             {/* Sub-addon 2: Confidential OS Encryption */}
                                             <div className="sub-addon">
-                                                <label className="toggle-row">
-                                                    <input type="checkbox" checked={showConfidential} onChange={e => setShowConfidential(e.target.checked)} />
-                                                    <span>Enable Confidential OS Encryption</span>
+                                                <label className="toggle-row custom-checkbox-row">
+                                                    <input type="checkbox" className="custom-checkbox" checked={showConfidential} onChange={e => setShowConfidential(e.target.checked)} />
+                                                    <span className="checkbox-label">Enable Confidential OS Encryption</span>
                                                     <div className="info-tooltip">
                                                         <Info size={12} />
                                                         <span className="tooltip-text">Confidential computing VMs encrypt data in use, which includes the OS disk.</span>

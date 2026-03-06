@@ -14,7 +14,7 @@ import './index.css';
 
 function Navbar() {
   const { currency, setCurrency, region, setRegion, items } = useEstimate();
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const isHome = location.pathname === '/';
@@ -67,7 +67,9 @@ function Navbar() {
               <Bot size={15} />
               AI Assistant
             </NavLink>
-            {user ? (
+            {loading ? (
+              <div style={{ width: 100, opacity: 0 }} /> // Placeholder to prevent layout shift
+            ) : user ? (
               <NavLink to="/my-estimates" className={({ isActive }) => isActive ? 'active' : ''}>
                 <Home size={15} />
                 My Estimates
@@ -112,8 +114,10 @@ function Navbar() {
           </>
         )}
 
-        {/* Login Button positioned at the end (right corner) */}
-        {!user && location.pathname !== '/login' && (
+        {/* Login Button / User Profile */}
+        {loading ? (
+          <div style={{ width: 80, height: 32 }} /> // Provide empty space while auth resolves
+        ) : !user && location.pathname !== '/login' ? (
           <NavLink
             to="/login"
             className="btn-primary"
@@ -121,16 +125,14 @@ function Navbar() {
               padding: isHome ? '8px 20px' : '6px 16px',
               fontSize: '0.9rem',
               marginLeft: 8,
-              background: 'var(--accent)', /* Ensure it uses the primary blue */
+              background: 'var(--accent)',
               color: 'white',
               border: 'none'
             }}
           >
             {isHome ? 'Sign In' : 'Login'}
           </NavLink>
-        )}
-
-        {user && (
+        ) : user ? (
           <div className="user-profile-menu" ref={profileRef}>
             <button
               className="user-profile-trigger"
@@ -159,7 +161,7 @@ function Navbar() {
               </div>
             )}
           </div>
-        )}
+        ) : null}
       </div>
     </nav>
   );
@@ -170,21 +172,52 @@ import LoginPage from './pages/LoginPage';
 import MyEstimates from './pages/MyEstimates';
 import { Toaster } from 'react-hot-toast';
 
+function AppContent() {
+  const { loading } = useAuth();
+  const [showApp, setShowApp] = useState(false);
+
+  useEffect(() => {
+    let timer;
+    if (!loading) {
+      // Add a small delay after auth resolves to debounce rapid reloads
+      timer = setTimeout(() => setShowApp(true), 400);
+    } else {
+      setShowApp(false);
+    }
+    return () => clearTimeout(timer);
+  }, [loading]);
+
+  if (!showApp) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-document)', color: 'var(--accent)' }}>
+        <div className="spinner" style={{ width: 40, height: 40, borderWidth: 3, marginBottom: 16 }}></div>
+        <div style={{ fontWeight: 600, letterSpacing: 0.5 }}>Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Navbar />
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/dashboard" element={<CalculatorPage />} />
+        <Route path="/vms" element={<VmComparisonPage />} />
+        <Route path="/ai" element={<AiPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/my-estimates" element={<MyEstimates />} />
+      </Routes>
+    </>
+  );
+}
+
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <EstimateProvider>
           <Toaster position="bottom-right" />
-          <Navbar />
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/dashboard" element={<CalculatorPage />} />
-            <Route path="/vms" element={<VmComparisonPage />} />
-            <Route path="/ai" element={<AiPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/my-estimates" element={<MyEstimates />} />
-          </Routes>
+          <AppContent />
         </EstimateProvider>
       </BrowserRouter>
     </AuthProvider>

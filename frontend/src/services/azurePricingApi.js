@@ -21,6 +21,11 @@ function lsGet(key) {
 
 function lsSet(key, data) {
   try {
+    // Don't store massive payloads in localStorage (e.g., limit=all for VMs)
+    // as stringifying 6MB+ synchronously blocks the main thread for seconds.
+    const strData = JSON.stringify({ t: Date.now(), d: data });
+    if (strData.length > 1024 * 1024) return; // Skip if > 1MB
+
     // Evict oldest if over cap
     const keys = Object.keys(localStorage).filter(k => k.startsWith(LS_PREFIX));
     if (keys.length >= MAX_LS_ENTRIES) {
@@ -30,7 +35,7 @@ function lsSet(key, data) {
       }
       if (oldest) localStorage.removeItem(oldest);
     }
-    localStorage.setItem(LS_PREFIX + key, JSON.stringify({ t: Date.now(), d: data }));
+    localStorage.setItem(LS_PREFIX + key, strData);
   } catch { /* quota exceeded — ignore */ }
 }
 

@@ -2094,6 +2094,61 @@ body {
   z-index: 10;
 }
 
+/* ── Custom Checkbox (Snapshot / Encryption) ── */
+.custom-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.custom-checkbox {
+  appearance: none;
+  background-color: transparent;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-primary);
+  border-radius: 4px;
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.custom-checkbox::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  transform: scale(0);
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em var(--accent);
+  background-color: var(--accent);
+  transform-origin: center;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+.custom-checkbox:checked {
+  border-color: var(--accent);
+  background-color: var(--accent-light);
+}
+
+.custom-checkbox:checked::before {
+  transform: scale(1);
+  box-shadow: inset 1em 1em white;
+  background-color: white;
+}
+
+.custom-checkbox:hover {
+  border-color: var(--accent);
+}
+
+.checkbox-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
 /* ── Loading ──────────────────────────────────── */
 .loading-spinner {
   display: flex;

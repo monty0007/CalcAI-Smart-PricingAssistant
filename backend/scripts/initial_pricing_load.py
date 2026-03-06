@@ -229,6 +229,18 @@ def fetch_and_load(fresh=False):
                 data = response.json()
                 items = data.get('Items', [])
 
+                # Filter out unwanted Managed Disk variants (Burst, Snapshot, Disk Mount)
+                def is_valid_disk_item(item):
+                    service_name = item.get('serviceName', '')
+                    sku_name = (item.get('skuName') or '').lower()
+                    meter_name = (item.get('meterName') or '').lower()
+                    if service_name == 'Storage' and 'Managed Disks' in item.get('productName', ''):
+                        if any(kw in sku_name or kw in meter_name for kw in ['burst', 'snapshot', 'mount']):
+                            return False
+                    return True
+
+                items = [i for i in items if is_valid_disk_item(i)]
+
                 if not items and not data.get('NextPageLink'):
                     break
 

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import { initDB, queryPrices, getLastSync, getPriceCount, getBestVmPrices } from './db.js';
 import { runFullSync, runQuickSync } from './sync.js';
@@ -7,6 +8,7 @@ import { initScheduler } from './scheduler.js';
 import authRouter, { authenticateToken } from './auth.js';
 import toolsRouter from './aiTools.js';
 import chatsRouter from './chats.js';
+import estimatesRouter from './estimates.js';
 
 dotenv.config();
 
@@ -35,12 +37,14 @@ function serverCacheSet(key, data) {
 
 // ── Middleware ───────────────────────────────────
 app.use(cors());
+app.use(compression());
 app.use(express.json());
 
 // ── Routes ──────────────────────────────────────
 app.use('/api/auth', authRouter);
 app.use('/api/tools', toolsRouter);
 app.use('/api/chats', chatsRouter);
+app.use('/api/estimates', estimatesRouter);
 
 app.post('/api/logs', (req, res) => {
     const { message, data } = req.body;

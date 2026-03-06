@@ -203,7 +203,18 @@ router.post('/calculate_estimate', async (req, res) => {
                     }
 
                     // Exclude transaction meters — we want disk capacity pricing only
-                    sql += ` AND retail_price > 0 AND (raw_data->>'meterName' IS NULL OR (raw_data->>'meterName' NOT ILIKE '%Transaction%' AND raw_data->>'meterName' NOT ILIKE '%Operation%'))`;
+                    // Also exclude Disk Mount, Burst, and Snapshot variants
+                    sql += ` AND retail_price > 0
+                      AND (raw_data->>'meterName' IS NULL OR (
+                        raw_data->>'meterName' NOT ILIKE '%Transaction%' AND
+                        raw_data->>'meterName' NOT ILIKE '%Operation%'
+                      ))
+                      AND sku_name NOT ILIKE '%Mount%'
+                      AND sku_name NOT ILIKE '%Burst%'
+                      AND sku_name NOT ILIKE '%Snapshot%'
+                      AND (raw_data->>'meterName') NOT ILIKE '%Mount%'
+                      AND (raw_data->>'meterName') NOT ILIKE '%Burst%'
+                      AND (raw_data->>'meterName') NOT ILIKE '%Snapshot%'`;
                     sql += ` ORDER BY retail_price ASC LIMIT 1`;
 
                     console.log('Disk SQL:', sql, args);

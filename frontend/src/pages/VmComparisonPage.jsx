@@ -146,6 +146,7 @@ export default function VmComparisonPage() {
         rows = rows.map(vm => {
             const best = bestPrices[vm.skuName];
             let bestRegion = '';
+            let isCurrent = false;
             let diffPercent = 0;
 
             if (best && vm.linuxPrice != null) {
@@ -153,7 +154,9 @@ export default function VmComparisonPage() {
                     bestRegion = best.region;
                     diffPercent = Math.round(((vm.linuxPrice - best.minPrice) / vm.linuxPrice) * 100);
                 } else if (vm.linuxPrice <= best.minPrice * 1.01) {
-                    bestRegion = 'This is best';
+                    // Current region IS the best — show it with "(Current)" label
+                    bestRegion = best.region;
+                    isCurrent = true;
                 } else {
                     bestRegion = best.region;
                 }
@@ -161,7 +164,7 @@ export default function VmComparisonPage() {
                 bestRegion = best.region;
             }
 
-            return { ...vm, bestRegion, diffPercent };
+            return { ...vm, bestRegion, isCurrent, diffPercent };
         });
 
         rows.sort((a, b) => {
@@ -363,6 +366,20 @@ export default function VmComparisonPage() {
                                     <td>
                                         <div className="best-region-cell">
                                             <span className="best-region-name">{vm.bestRegion || '—'}</span>
+                                            {vm.isCurrent && (
+                                                <span style={{
+                                                    display: 'inline-block',
+                                                    marginLeft: '6px',
+                                                    padding: '1px 7px',
+                                                    borderRadius: '20px',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 600,
+                                                    background: 'rgba(34, 197, 94, 0.15)',
+                                                    color: 'rgb(34, 197, 94)',
+                                                    border: '1px solid rgba(34, 197, 94, 0.3)',
+                                                    letterSpacing: '0.03em'
+                                                }}>Current</span>
+                                            )}
                                         </div>
                                     </td>
                                     <td>

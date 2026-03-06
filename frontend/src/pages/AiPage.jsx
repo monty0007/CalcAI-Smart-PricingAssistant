@@ -62,7 +62,7 @@ function parseQuery(query) {
 }
 
 // ── AI call ──────────────────────────────────────────────────────────
-async function callAI(messages, pricingContext, currency, depth = 0, _toolResult = null) {
+async function callAI(messages, pricingContext, currency, depth = 0, _toolResult = null, signal = null) {
     if (!AI_ENDPOINT || !AI_API_KEY) return { text: null, toolResult: null };
     if (depth > 2) return { text: "I'm sorry, I encountered too many tool operations to process this effectively.", toolResult: _toolResult };
 
@@ -92,11 +92,12 @@ Every user query must be broken down into items with a \`type\` field. The backe
 ### type: "managed_disk" — Managed Disks
 - diskType: "E10", "E15", "E20", "E30", "S4", "S10", "P10" etc.
 - diskTier: "Standard SSD", "Premium SSD", "Standard HDD"
-- diskRedundancy: "LRS", "ZRS", "GRS" (default "LRS")
+- diskRedundancy: "LRS" or "ZRS" (default "LRS"). NEVER use "GRS".
 - region: Azure region slug
 - quantity: number of disks (default 1)
 - transactions: number of monthly disk transactions (default 0). If user mentions transactions or IOPS, set this.
 - IMPORTANT: Disks attached to a VM are ALWAYS separate items, never part of the VM item.
+- IMPORTANT: ONLY use standard disk sizes (e.g. S4, S10, E10, P10). NEVER include "Burst", "Snapshot", or "Disk Mount" variants — these are excluded from pricing.
 
 ### type: "bandwidth" — Data Transfer / Bandwidth
 - transferType: "internet" or "inter-region"
@@ -190,9 +191,7 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
                     }
                 }
             ],
-            tool_choice: depth === 0
-                ? { type: 'function', function: { name: 'calculate_estimate' } }
-                : 'auto'
+            tool_choice: 'auto'
         };
 
         fetch(LOG_URL, {
@@ -215,6 +214,7 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
             method: 'POST',
             headers,
             body: JSON.stringify(payload),
+            signal
         });
         if (!res.ok) {
             console.error("AI API Error:", res.status, await res.text());
@@ -248,7 +248,7 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
                         content: JSON.stringify(backendResult)
                     });
 
-                    return await callAI(messages, pricingContext, currency, depth + 1, backendResult);
+                    return await callAI(messages, pricingContext, currency, depth + 1, backendResult, signal);
                 } catch (e) {
                     console.error("Tool execution error", e);
                     messages.push(responseMessage);
@@ -258,20 +258,21 @@ Target Currency: ${currency}. The tool returns values already in ${currency}. NE
                         name: toolCall.function.name,
                         content: JSON.stringify({ error: "Failed to map parameters natively" })
                     });
-                    return await callAI(messages, pricingContext, currency, depth + 1, _toolResult);
+                    return await callAI(messages, pricingContext, currency, depth + 1, _toolResult, signal);
                 }
             }
         }
 
-        // If model returned plain text (after a tool round-trip), return it.
-        // If it returned plain text on the *first* call (depth===0), discard it —
-        // the model should have called the tool, not guessed.
+        // If model returned plain text, return it.
         if (responseMessage.content) {
-            if (depth === 0) return { text: null, toolResult: null }; // refuse unverified answer
             return { text: responseMessage.content, toolResult: _toolResult };
         }
+
         return { text: null, toolResult: _toolResult };
-    } catch {
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            return { text: null, toolResult: null, aborted: true };
+        }
         return { text: null, toolResult: null };
     }
 }
@@ -413,6 +414,7 @@ export default function AiPage() {
     const msgIdRef = useRef(1);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+    const abortControllerRef = useRef(null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -485,6 +487,12 @@ export default function AiPage() {
         if (inputRef.current) {
             inputRef.current.style.height = 'auto';
         }
+
+        // Cancel any existing request (though loading check above usually prevents this)
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
 
         const userMsgId = msgIdRef.current++;
         let currentMsgs = [...messages.slice(-50), { id: userMsgId, role: 'user', content: query, type: 'text' }];
@@ -596,7 +604,12 @@ export default function AiPage() {
                     .filter(m => m.id !== 0 && (m.role === 'user' || m.role === 'bot'))
                     .slice(-60)
                     .map(m => ({ role: m.role === 'bot' ? 'assistant' : 'user', content: m.content }));
-                const aiResult = await callAI(aiMessages, pricingContext, currency);
+                const aiResult = await callAI(aiMessages, pricingContext, currency, 0, null, abortControllerRef.current.signal);
+                if (aiResult?.aborted) {
+                    // If aborted, just stop here and remove the user message
+                    setMessages(prev => prev.filter(m => m.id !== userMsgId));
+                    return;
+                }
                 aiText = aiResult?.text ?? null;
                 aiToolResult = aiResult?.toolResult ?? null;
             }
@@ -657,6 +670,11 @@ export default function AiPage() {
             } catch (err) { console.error('Failed to save chat', err); }
 
         } catch (err) {
+            if (err.name === 'AbortError') {
+                // If the fetch itself was aborted, remove the user message
+                setMessages(prev => prev.filter(m => m.id !== userMsgId));
+                return;
+            }
             const botMsg = {
                 id: msgIdRef.current++,
                 role: 'bot',
@@ -667,6 +685,7 @@ export default function AiPage() {
             setMessages(currentMsgs);
         } finally {
             setLoading(false);
+            abortControllerRef.current = null;
             inputRef.current?.focus();
         }
     }
@@ -720,6 +739,14 @@ export default function AiPage() {
                 {/* ── Header ──────────────────────────────────────── */}
                 <div className="ai-header-wrapper">
                     <div className="ai-header">
+                        <button
+                            className="ai-back-btn"
+                            onClick={() => navigate('/dashboard')}
+                            title="Back to Dashboard"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '6px', borderRadius: '8px' }}
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
                         <div className="ai-header__icon" style={{ cursor: 'pointer' }} onClick={() => setShowSidebar(!showSidebar)}>
                             <Sparkles size={20} />
                         </div>
@@ -828,13 +855,25 @@ export default function AiPage() {
                             }}
                             onKeyDown={handleKeyDown}
                         />
-                        <button
-                            className={`ai-send-btn ${loading || !input.trim() ? 'disabled' : ''}`}
-                            onClick={() => handleSend()}
-                            disabled={loading || !input.trim()}
-                        >
-                            {loading ? <RefreshCw size={16} className="spin" /> : <Send size={16} />}
-                        </button>
+                        {loading ? (
+                            <button
+                                className="ai-stop-btn"
+                                onClick={() => {
+                                    if (abortControllerRef.current) abortControllerRef.current.abort();
+                                }}
+                                title="Stop generating"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                            </button>
+                        ) : (
+                            <button
+                                className={`ai-send-btn ${!input.trim() ? 'disabled' : ''}`}
+                                onClick={() => handleSend()}
+                                disabled={!input.trim()}
+                            >
+                                <Send size={16} />
+                            </button>
+                        )}
                     </div>
                     <p className="ai-input-hint">
                         Prices are fetched live from Microsoft Azure · Press <kbd>Enter</kbd> to send
