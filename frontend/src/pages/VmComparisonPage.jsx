@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, ArrowLeft, X, Check, ChevronDown, Download, SlidersHorizontal, Info, ArrowUp, ArrowDown } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
 import { fetchVmList, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES, fetchBestVmPrices } from '../services/azurePricingApi';
@@ -66,12 +66,25 @@ export default function VmComparisonPage() {
     const { region, currency, setCurrency } = useEstimate();
 
     const [searchQuery, setSearchQuery] = useState('');
+    const [visibleCount, setVisibleCount] = useState(100);
     const [allVms, setAllVms] = useState([]);       // all VMs loaded from backend
     const [vmRows, setVmRows] = useState([]);         // filtered view shown in table
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState(null);
     const [sortConfig, setSortConfig] = useState({ key: 'linuxPrice', direction: 'asc' });
     const [selectedSkus, setSelectedSkus] = useState([]);
+
+    const observer = useRef();
+    const lastRowRef = useCallback(node => {
+        if (loading) return;
+        if (observer.current) observer.current.disconnect();
+        observer.current = new IntersectionObserver(entries => {
+            if (entries[0].isIntersecting && visibleCount < vmRows.length) {
+                setVisibleCount(prev => prev + 100);
+            }
+        });
+        if (node) observer.current.observe(node);
+    }, [loading, visibleCount, vmRows.length]);
 
     const [showPricingCard, setShowPricingCard] = useState(false);
     const [pricingPeriod, setPricingPeriod] = useState('monthly');
@@ -103,8 +116,14 @@ export default function VmComparisonPage() {
         const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
         fetch(`${apiBase}/health`)
             .then(r => r.json())
-            .then(d => { if (d.lastSync?.completedAt) setLastUpdate(new Date(d.lastSync.completedAt)); })
-            .catch(() => { });
+            .then(d => {
+                if (d.lastSync?.completedAt) {
+                    setLastUpdate(new Date(d.lastSync.completedAt));
+                } else {
+                    setLastUpdate('unknown');
+                }
+            })
+            .catch(() => { setLastUpdate('unknown'); });
     }, []);
 
     // Fetch ALL VMs when region or currency changes (only two triggers)
@@ -185,6 +204,7 @@ export default function VmComparisonPage() {
         });
 
         setVmRows(rows);
+        setVisibleCount(100);
     }, [allVms, searchQuery, sortConfig, bestPrices]);
 
     const handleSort = (key) => {
@@ -244,7 +264,7 @@ export default function VmComparisonPage() {
                         <p className="vm-hero-subtitle">
                             {allVms.length > 0 && !loading ? <><strong>{allVms.length}</strong> VMs{vmRows.length < allVms.length ? ` · ${vmRows.length} filtered` : ''} · </> : ''}
                             <span className="vm-update-chip">
-                                {lastUpdate ? `Updated ${lastUpdate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Loading data...'}
+                                {lastUpdate instanceof Date ? `Updated ${lastUpdate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : (lastUpdate === 'unknown' ? '' : 'Loading data...')}
                             </span>
                         </p>
                     </div>
@@ -317,7 +337,7 @@ export default function VmComparisonPage() {
                         </tr>
                     </thead>
                     <tbody>
-                        {vmRows.map((vm, idx) => {
+                        {vmRows.slice(0, visibleCount).map((vm, idx) => {
                             const isSelected = selectedSkus.includes(vm.skuName);
                             const tooltipLines = getTooltipLines(vm.skuName);
                             const isHovered = hoveredSku === vm.skuName;
@@ -409,6 +429,11 @@ export default function VmComparisonPage() {
                                     <p>No VMs found matching your filters</p>
                                     <span>Try adjusting the vCPU, Memory, or search filters above</span>
                                 </td>
+                            </tr>
+                        )}
+                        {!loading && visibleCount < vmRows.length && (
+                            <tr ref={lastRowRef}>
+                                <td colSpan={6} style={{ height: '40px' }}></td>
                             </tr>
                         )}
                     </tbody>

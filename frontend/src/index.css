@@ -119,8 +119,8 @@ body {
 
 /* ── Scrollbar ─────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -129,7 +129,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-hover);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -233,36 +233,127 @@ body {
   background: var(--bg-card-hover);
 }
 
-.select-control {
-  background: var(--bg-input);
+/* ── Navbar Custom Dropdowns ── */
+.navbar-dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.navbar-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   color: var(--text-primary);
-  padding: 6px 28px 6px 10px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
-  font-size: 0.78rem;
-  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all var(--transition-fast);
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%235a6178' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
+  user-select: none;
+  height: 32px;
 }
 
-[data-theme="dark"] .select-control {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
-}
-
-.select-control:hover {
+.navbar-dropdown-trigger:hover {
+  background: var(--bg-tertiary);
   border-color: var(--border-hover);
 }
 
-.select-control:focus {
+.navbar-dropdown-trigger:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.1);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
 }
+
+.navbar-dropdown-icon {
+  color: var(--text-muted);
+}
+
+.navbar-dropdown-label {
+  white-space: nowrap;
+}
+
+.navbar-dropdown-chevron {
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  margin-left: 4px;
+}
+
+.navbar-dropdown-chevron.open {
+  transform: rotate(180deg);
+}
+
+.navbar-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: dropdownFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.navbar-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.navbar-dropdown-item:hover,
+.navbar-dropdown-item:focus-visible {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.navbar-dropdown-item.selected {
+  background: rgba(0, 120, 212, 0.08);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+[data-theme="dark"] .navbar-dropdown-item.selected {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.navbar-dropdown-check {
+  color: var(--accent);
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 
 /* ===================== */
 /* LOGO COMPONENTS       */
@@ -1764,7 +1855,7 @@ body {
 }
 
 .estimate-total .label {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   font-weight: 600;
   text-transform: uppercase;
@@ -1772,7 +1863,7 @@ body {
 }
 
 .estimate-total .amount {
-  font-size: 1.75rem;
+  font-size: 1.25rem;
   font-weight: 800;
   color: var(--text-primary);
   letter-spacing: -0.5px;
@@ -1780,7 +1871,7 @@ body {
 
 .estimate-period {
   text-align: right;
-  font-size: 0.75rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
   margin-bottom: 20px;
 }
@@ -7195,9 +7286,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 7px 12px;
+  padding: 6px 10px;
   border-radius: 7px;
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid var(--border-primary);
@@ -8047,6 +8138,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-x: auto;
+  /* Allow horizontal scroll on smaller screens if needed */
+  width: 100%;
 }
 
 /* ── Estimate Card ── */
@@ -8079,6 +8173,7 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 /* Name Row */
@@ -8136,6 +8231,7 @@ body {
   font-weight: 600;
   outline: none;
   box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.15);
+  min-width: 0;
 }
 
 .me-icon-btn--confirm {
@@ -8175,6 +8271,7 @@ body {
   font-size: 0.7rem;
   font-weight: 500;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 /* Cost Row */
@@ -8199,6 +8296,7 @@ body {
   display: flex;
   align-items: center;
   gap: 3px;
+  white-space: nowrap;
 }
 
 .me-cost-value {
@@ -8206,6 +8304,7 @@ body {
   font-weight: 800;
   color: var(--accent);
   line-height: 1;
+  white-space: nowrap;
 }
 
 /* Footer Actions */
@@ -8230,6 +8329,7 @@ body {
   border: 1px solid transparent;
   transition: all 0.2s;
   flex: 1;
+  white-space: nowrap;
 }
 
 .me-footer-btn--primary {
@@ -8325,25 +8425,27 @@ body {
   align-items: center;
   padding: 12px 16px;
   gap: 16px;
+  min-width: 0;
 }
 
 .me-card--list .me-card-name-row {
   flex: 1;
   margin: 0;
-  min-width: 180px;
+  min-width: 0;
 }
 
 .me-card--list .me-card-meta {
   margin: 0;
-  flex: 1.5;
-  min-width: 200px;
+  flex: 1;
+  min-width: 0;
 }
 
 .me-card--list .me-card-cost-row {
   margin: 0;
   padding: 0;
   border: none;
-  min-width: 120px;
+  min-width: auto;
+  flex-shrink: 0;
 }
 
 .me-card--list .me-card-cost-info {
@@ -8354,7 +8456,8 @@ body {
   border-top: none;
   border-left: 1px solid var(--border-primary);
   padding: 12px 16px;
-  width: 200px;
+  width: auto;
+  flex-wrap: wrap;
 }
 
 /* ── Responsive ── */

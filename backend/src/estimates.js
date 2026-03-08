@@ -50,14 +50,15 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/', async (req, res) => {
     try {
-        const { name, items, totalCost, currency } = req.body;
+        const { name, items, currency } = req.body;
+        const cost = req.body.total_cost ?? req.body.totalCost ?? 0;
         if (!name || !items) return res.status(400).json({ error: 'Name and items required' });
 
         const result = await query(
             `INSERT INTO estimates (user_id, name, items, total_cost, currency) 
              VALUES ($1, $2, $3, $4, $5) 
              RETURNING id, name, total_cost, currency, created_at`,
-            [req.user.id, name, JSON.stringify(items), totalCost, currency]
+            [req.user.id, name, JSON.stringify(items), cost, currency]
         );
         res.json(result.rows[0]);
     } catch (err) {
@@ -72,7 +73,8 @@ router.post('/', async (req, res) => {
  */
 router.put('/:id', async (req, res) => {
     try {
-        const { name, items, totalCost, currency } = req.body;
+        const { name, items, currency } = req.body;
+        const cost = req.body.total_cost ?? req.body.totalCost;
         const result = await query(
             `UPDATE estimates 
              SET name = COALESCE($1, name), 
@@ -82,7 +84,7 @@ router.put('/:id', async (req, res) => {
                  updated_at = NOW()
              WHERE id = $5 AND user_id = $6
              RETURNING *`,
-            [name, items ? JSON.stringify(items) : null, totalCost, currency, req.params.id, req.user.id]
+            [name, items ? JSON.stringify(items) : null, cost ?? null, currency, req.params.id, req.user.id]
         );
 
         if (result.rows.length === 0) return res.status(404).json({ error: 'Estimate not found or unauthorized' });

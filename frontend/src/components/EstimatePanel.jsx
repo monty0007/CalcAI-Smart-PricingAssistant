@@ -37,12 +37,10 @@ export default function EstimatePanel({ onEditItem }) {
     const [showSaveForm, setShowSaveForm] = useState(false);
     const [saveName, setSaveName] = useState('');
     const [saveLoading, setSaveLoading] = useState(false);
-    const [saveMsg, setSaveMsg] = useState(null); // { type: 'ok'|'err', text }
 
     async function handleSaveEstimate() {
-        if (!saveName.trim()) return;
+        if (!activeEstimateId && !saveName.trim()) return;
         setSaveLoading(true);
-        setSaveMsg(null);
         try {
             const url = activeEstimateId ? `${API_URL}/estimates/${activeEstimateId}` : `${API_URL}/estimates`;
             const method = activeEstimateId ? 'PUT' : 'POST';
@@ -68,12 +66,11 @@ export default function EstimatePanel({ onEditItem }) {
                 const data = await res.json();
                 setActiveEstimate(data.id, data.name);
             }
-            setSaveMsg({ type: 'ok', text: activeEstimateId ? 'Estimate updated!' : `"${saveName.trim()}" saved!` });
+            toast.success(activeEstimateId ? 'Estimate updated!' : `"${saveName.trim()}" saved!`);
             setSaveName('');
             setShowSaveForm(false);
-            setTimeout(() => setSaveMsg(null), 3000);
         } catch (err) {
-            setSaveMsg({ type: 'err', text: err.message });
+            toast.error(err.message);
         } finally {
             setSaveLoading(false);
         }
@@ -111,7 +108,6 @@ export default function EstimatePanel({ onEditItem }) {
     async function saveActiveEstimateName() {
         if (!editNameValue.trim() || !activeEstimateId) return;
         try {
-            setSaveMsg(null);
             const res = await fetch(`${API_URL}/estimates/${activeEstimateId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -237,6 +233,21 @@ export default function EstimatePanel({ onEditItem }) {
         return price * qty;
     }
 
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const [showUpdateConfirm, setShowUpdateConfirm] = useState(false);
+
+    function handleConfirmClear() {
+        clearAll();
+        setShowClearConfirm(false);
+        toast.success("Estimate cleared!");
+    }
+
+    function handleConfirmUpdate() {
+        handleSaveEstimate();
+        setShowUpdateConfirm(false);
+    }
+    const totalItemsCount = items.reduce((sum, item) => sum + (item.quantity || 1), 0);
+
     return (
         <>
             <aside className="estimate-panel">
@@ -244,7 +255,7 @@ export default function EstimatePanel({ onEditItem }) {
                     <h3>
                         <ShoppingCart size={16} />
                         Your Estimate
-                        {items.length > 0 && <span className="item-count">{items.length}</span>}
+                        {totalItemsCount > 0 && <span className="item-count">{totalItemsCount}</span>}
                     </h3>
                 </div>
 
@@ -429,16 +440,8 @@ export default function EstimatePanel({ onEditItem }) {
                             ≈ {formatPrice(totalMonthlyCost * 12, currency)} / year
                         </div>
 
-                        {/* Save estimate message */}
-                        {saveMsg && (
-                            <div className={`est-save-msg ${saveMsg.type}`}>
-                                {saveMsg.type === 'ok' ? <Check size={12} /> : <X size={12} />}
-                                {saveMsg.text}
-                            </div>
-                        )}
-
                         {/* Save estimate inline form */}
-                        {showSaveForm && user && (
+                        {showSaveForm && user && !activeEstimateId && (
                             <div className="est-save-form">
                                 <input
                                     className="est-save-input"
@@ -462,21 +465,65 @@ export default function EstimatePanel({ onEditItem }) {
                             </div>
                         )}
 
-                        <div className="estimate-actions">
-                            <button
-                                className="est-action-btn est-save-btn"
-                                onClick={handleOpenSaveForm}
-                                title={activeEstimateId ? "Update this estimate" : "Save this estimate"}
-                            >
-                                <Save size={13} /> {activeEstimateId ? "Update" : "Save"}
-                            </button>
-                            <button className="est-action-btn est-export-btn" onClick={handleExportExcel}>
-                                <Download size={13} /> Excel
-                            </button>
-                            <button className="est-action-btn est-clear-btn" onClick={clearAll}>
-                                <RotateCcw size={13} /> Clear
-                            </button>
-                        </div>
+                        {/* Update Confirm */}
+                        {showUpdateConfirm && (
+                            <div className="est-save-form" style={{ background: 'var(--bg-tertiary)' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', flex: 1 }}>Update saved estimate?</span>
+                                <button
+                                    className="est-action-btn est-save-btn"
+                                    style={{ flex: 'none' }}
+                                    onClick={handleConfirmUpdate}
+                                >
+                                    <Check size={13} /> Yes
+                                </button>
+                                <button
+                                    className="est-action-btn"
+                                    style={{ flex: 'none' }}
+                                    onClick={() => setShowUpdateConfirm(false)}
+                                >
+                                    <X size={13} /> No
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Clear Confirm */}
+                        {showClearConfirm && (
+                            <div className="est-save-form" style={{ background: 'var(--bg-tertiary)' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', flex: 1 }}>Clear all items?</span>
+                                <button
+                                    className="est-action-btn"
+                                    style={{ flex: 'none', background: 'var(--danger)', color: 'white', borderColor: 'var(--danger)' }}
+                                    onClick={handleConfirmClear}
+                                >
+                                    <Check size={13} /> Yes
+                                </button>
+                                <button
+                                    className="est-action-btn"
+                                    style={{ flex: 'none' }}
+                                    onClick={() => setShowClearConfirm(false)}
+                                >
+                                    <X size={13} /> No
+                                </button>
+                            </div>
+                        )}
+
+                        {!showSaveForm && !showUpdateConfirm && !showClearConfirm && (
+                            <div className="estimate-actions">
+                                <button
+                                    className="est-action-btn est-save-btn"
+                                    onClick={activeEstimateId ? () => setShowUpdateConfirm(true) : handleOpenSaveForm}
+                                    title={activeEstimateId ? "Update this estimate" : "Save this estimate"}
+                                >
+                                    <Save size={13} /> {activeEstimateId ? "Update" : "Save"}
+                                </button>
+                                <button className="est-action-btn est-export-btn" onClick={handleExportExcel}>
+                                    <Download size={13} /> Excel
+                                </button>
+                                <button className="est-action-btn est-clear-btn" onClick={() => setShowClearConfirm(true)}>
+                                    <RotateCcw size={13} /> Clear
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </aside>

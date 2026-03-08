@@ -172,12 +172,26 @@ app.post('/api/sync/quick', async (req, res) => {
 app.get('/api/best-vm-prices', async (req, res) => {
     try {
         const { currency = 'USD' } = req.query;
+
+        const cacheKey = `best-vm-prices:${currency}`;
+        const cached = serverCacheGet(cacheKey);
+        if (cached) {
+            res.set('X-Cache', 'HIT');
+            res.set('Cache-Control', 'public, max-age=900');
+            return res.json(cached);
+        }
+
         const prices = await getBestVmPrices(currency);
-        res.json({
+        const response = {
             count: prices.length,
             currency,
             items: prices
-        });
+        };
+
+        serverCacheSet(cacheKey, response);
+        res.set('X-Cache', 'MISS');
+        res.set('Cache-Control', 'public, max-age=900');
+        res.json(response);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch best prices', message: err.message });
     }
@@ -541,107 +555,8 @@ app.post('/api/vms/compare', async (req, res) => {
     }
 });
 
-// ── Estimates CRUD ──────────────────────────────────────────────────
+// ── Saved Quotations / Estimates handling mapped to estimatesRouter ──
 
-/**
- * GET /api/estimates
- * Returns all estimates for the logged-in user (summary only, no full items)
- */
-app.get('/api/estimates', authenticateToken, async (req, res) => {
-    try {
-        const { query } = await import('./db.js');
-        const result = await query(
-            `SELECT id, name, total_cost, currency, created_at, updated_at,
-                    items,
-                    jsonb_array_length(items) AS item_count
-             FROM estimates
-             WHERE user_id = $1
-             ORDER BY updated_at DESC`,
-            [req.user.id]
-        );
-        res.json(result.rows);
-    } catch (err) {
-        console.error('Get estimates error:', err);
-        res.status(500).json({ error: 'Failed to fetch estimates' });
-    }
-});
-
-/**
- * POST /api/estimates
- * Create a new saved estimate
- */
-app.post('/api/estimates', authenticateToken, async (req, res) => {
-    try {
-        const { name, items, total_cost, totalCost, currency } = req.body;
-        const cost = total_cost ?? totalCost ?? 0;
-        if (!name) return res.status(400).json({ error: 'name is required' });
-        if (!items) return res.status(400).json({ error: 'items is required' });
-        const { query } = await import('./db.js');
-        const result = await query(
-            `INSERT INTO estimates (user_id, name, items, total_cost, currency)
-             VALUES ($1, $2, $3, $4, $5)
-             RETURNING id, name, total_cost, currency, created_at, updated_at`,
-            [req.user.id, name.trim(), JSON.stringify(items), cost, currency || 'USD']
-        );
-        res.status(201).json(result.rows[0]);
-    } catch (err) {
-        console.error('Create estimate error:', err);
-        res.status(500).json({ error: 'Failed to create estimate' });
-    }
-});
-
-/**
- * GET /api/estimates/:id
- * Returns a single estimate including full items array
- */
-app.get('/api/estimates/:id', authenticateToken, async (req, res) => {
-    try {
-        const { query } = await import('./db.js');
-        const result = await query(
-            `SELECT * FROM estimates WHERE id = $1 AND user_id = $2`,
-            [req.params.id, req.user.id]
-        );
-        if (!result.rows[0]) return res.status(404).json({ error: 'Estimate not found' });
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error('Get estimate error:', err);
-        res.status(500).json({ error: 'Failed to fetch estimate' });
-    }
-});
-
-/**
- * PUT /api/estimates/:id
- * Update (rename or update items) of an existing estimate
- */
-app.put('/api/estimates/:id', authenticateToken, async (req, res) => {
-    try {
-        const { name, items, total_cost, currency } = req.body;
-        const { query } = await import('./db.js');
-        const result = await query(
-            `UPDATE estimates
-             SET name = COALESCE($1, name),
-                 items = COALESCE($2::jsonb, items),
-                 total_cost = COALESCE($3, total_cost),
-                 currency = COALESCE($4, currency),
-                 updated_at = NOW()
-             WHERE id = $5 AND user_id = $6
-             RETURNING id, name, total_cost, currency, updated_at`,
-            [
-                name ? name.trim() : null,
-                items ? JSON.stringify(items) : null,
-                total_cost ?? null,
-                currency ?? null,
-                req.params.id,
-                req.user.id
-            ]
-        );
-        if (!result.rows[0]) return res.status(404).json({ error: 'Estimate not found' });
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error('Update estimate error:', err);
-        res.status(500).json({ error: 'Failed to update estimate' });
-    }
-});
 
 /**
  * DELETE /api/estimates/:id

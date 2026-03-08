@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, Bot, Sun, Moon, Home, Server, UserCircle2, LogOut, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Bot, Sun, Moon, Home, Server, UserCircle2, LogOut, ChevronDown, Globe, Banknote, Check } from 'lucide-react';
 import { EstimateProvider, useEstimate } from './context/EstimateContext';
 import { useAuth } from './context/AuthContext';
 import { AZURE_REGIONS } from './data/serviceCatalog';
@@ -11,6 +11,55 @@ import AiPage from './pages/AiPage';
 import VmComparisonPage from './pages/VmComparisonPage';
 import Logo from './components/Logo';
 import './index.css';
+
+function NavbarDropdown({ value, options, onChange, icon: Icon, ariaLabel }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedOption = options.find(opt => opt.value === value) || options[0];
+
+  return (
+    <div className="navbar-dropdown-container" ref={dropdownRef}>
+      <button
+        className="navbar-dropdown-trigger"
+        onClick={() => setIsOpen(!isOpen)}
+        aria-label={ariaLabel}
+      >
+        {Icon && <Icon size={14} className="navbar-dropdown-icon" />}
+        <span className="navbar-dropdown-label">{selectedOption?.label}</span>
+        <ChevronDown size={14} className={`navbar-dropdown-chevron ${isOpen ? 'open' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="navbar-dropdown-menu">
+          {options.map(opt => (
+            <button
+              key={opt.value}
+              className={`navbar-dropdown-item ${opt.value === value ? 'selected' : ''}`}
+              onClick={() => {
+                onChange(opt.value);
+                setIsOpen(false);
+              }}
+            >
+              <span>{opt.label}</span>
+              {opt.value === value && <Check size={14} className="navbar-dropdown-check" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Navbar() {
   const { currency, setCurrency, region, setRegion, items } = useEstimate();
@@ -82,27 +131,21 @@ function Navbar() {
       <div className="navbar-controls">
         {!isHome && location.pathname !== '/login' && (
           <>
-            <select
-              className="select-control"
+            <NavbarDropdown
               value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              aria-label="Select region"
-            >
-              {AZURE_REGIONS.map(r => (
-                <option key={r.code} value={r.code}>{r.name}</option>
-              ))}
-            </select>
+              options={AZURE_REGIONS.map(r => ({ value: r.code, label: r.name }))}
+              onChange={setRegion}
+              icon={Globe}
+              ariaLabel="Select region"
+            />
 
-            <select
-              className="select-control"
+            <NavbarDropdown
               value={currency}
-              onChange={(e) => setCurrency(e.target.value, items)}
-              aria-label="Select currency"
-            >
-              {SUPPORTED_CURRENCIES.map(c => (
-                <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>
-              ))}
-            </select>
+              options={SUPPORTED_CURRENCIES.map(c => ({ value: c.code, label: `${c.symbol} ${c.code}` }))}
+              onChange={(val) => setCurrency(val, items)}
+              icon={Banknote}
+              ariaLabel="Select currency"
+            />
 
             <button
               className="theme-toggle"
@@ -216,7 +259,7 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <EstimateProvider>
-          <Toaster position="bottom-right" />
+          <Toaster position="top-right" />
           <AppContent />
         </EstimateProvider>
       </BrowserRouter>
