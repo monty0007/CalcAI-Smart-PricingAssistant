@@ -18,30 +18,34 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Validate dependencies (no install — Azure Oryx handles it)
+      - name: Install production dependencies
         working-directory: ./backend
-        run: node --input-type=module <<< "import fs from 'fs'; const p = JSON.parse(fs.readFileSync('package.json','utf8')); console.log('package.json OK — main:', p.main);"
+        run: npm ci --omit=dev
 
-      - name: Upload backend artifact (source only, no node_modules)
+      - name: Create deployment zip
+        run: |
+          cd backend
+          zip -r ../deploy.zip . \
+            --exclude "*.log" \
+            --exclude ".env" \
+            --exclude "logs/*" \
+            --exclude "tests/*" \
+            --exclude "scripts/testing/*" \
+            --exclude "scripts/debug/*" \
+            --exclude "best_vm.json" \
+            --exclude "db_output.json" \
+            --exclude "debug_db_results.json" \
+            --exclude "raw_data_out.json" \
+            --exclude "test_out.json" \
+            --exclude "test_out2.json" \
+            --exclude "test_api_out.json"
+          echo "Zip size: $(du -sh ../deploy.zip | cut -f1)"
+
+      - name: Upload deployment zip
         uses: actions/upload-artifact@v4
         with:
           name: backend-app
-          path: |
-            backend
-            !backend/node_modules/**
-            !backend/.env
-            !backend/logs/**
-            !backend/tests/**
-            !backend/scripts/testing/**
-            !backend/scripts/debug/**
-            !backend/*.log
-            !backend/best_vm.json
-            !backend/db_output.json
-            !backend/debug_db_results.json
-            !backend/raw_data_out.json
-            !backend/test_out.json
-            !backend/test_out2.json
-            !backend/test_api_out.json
+          path: deploy.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -52,7 +56,7 @@ jobs:
       contents: read
 
     steps:
-      - name: Download artifact
+      - name: Download deployment zip
         uses: actions/download-artifact@v4
         with:
           name: backend-app
@@ -69,6 +73,6 @@ jobs:
         with:
           app-name: calcai
           slot-name: Production
-          package: .
+          package: deploy.zip
 
 
