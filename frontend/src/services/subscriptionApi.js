@@ -98,3 +98,24 @@ export async function getMyTickets(token) {
     if (!res.ok) throw new Error('Failed to fetch tickets');
     return res.json();
 }
+
+// ── Razorpay ───────────────────────────────────────────────────────────────────
+export async function createRazorpayOrder(token, tier) {
+    const res = await authFetch(`${API_URL}/subscriptions/razorpay/create-order`, token, {
+        method: 'POST',
+        body: JSON.stringify({ tier }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to create Razorpay order');
+    return json; // { orderId, amount, currency, keyId, prefill }
+}
+
+export async function verifyRazorpayPayment(token, payload) {
+    const res = await authFetch(`${API_URL}/subscriptions/razorpay/verify`, token, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Payment verification failed');
+    return json; // { success, tier, expiresAt }
+}

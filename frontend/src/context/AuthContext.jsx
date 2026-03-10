@@ -99,8 +99,18 @@ export function AuthProvider({ children }) {
 
     const logout = () => signOut(auth);
 
+    // Re-syncs the current user with the backend to pick up tier changes
+    const refreshUser = async () => {
+        const firebaseUser = auth.currentUser;
+        if (!firebaseUser) return;
+        const dbData = await syncUserWithBackend(firebaseUser);
+        if (dbData?.user) {
+            setUser(prev => ({ ...prev, ...(dbData.user || {}) }));
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, token, loading, login, signup, googleLogin, logout }}>
+        <AuthContext.Provider value={{ user, token, loading, login, signup, googleLogin, logout, refreshUser }}>
             {children}
         </AuthContext.Provider>
     );

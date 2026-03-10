@@ -6,6 +6,10 @@ import requests
 import psycopg2
 from psycopg2 import sql, extras
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load .env from the backend root (one level up from /scripts)
+load_dotenv(os.path.join(os.path.dirname(__file__), '../.env'))
 
 # Configuration
 API_URL = "https://prices.azure.com/api/retail/prices"
@@ -20,18 +24,7 @@ REFERENCE_REGION = "southcentralus"
 def get_db_connection():
     try:
         if not os.environ.get('DATABASE_URL'):
-            try:
-                base_dir = os.path.dirname(__file__)
-                env_path = os.path.join(base_dir, '../.env')
-                with open(env_path, 'r') as f:
-                    for line in f:
-                        if line.startswith('DATABASE_URL='):
-                            os.environ['DATABASE_URL'] = line.strip().split('=', 1)[1]
-            except Exception:
-                pass
-
-        if not os.environ.get('DATABASE_URL'):
-            print("Error: DATABASE_URL not found.")
+            print("Error: DATABASE_URL not found in environment or .env file.")
             sys.exit(1)
 
         conn = psycopg2.connect(os.environ['DATABASE_URL'])

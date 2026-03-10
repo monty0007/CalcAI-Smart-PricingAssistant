@@ -25,6 +25,7 @@
         "node-fetch": "^3.3.2",
         "nodemailer": "^8.0.1",
         "pg": "^8.18.0",
+        "razorpay": "^2.9.6",
         "stripe": "^20.4.1"
     }
 }

@@ -249,7 +249,44 @@ body {
 }
 
 /* ── Responsive Navbar ── */
-/* ≤ 900px: hide dropdowns, keep links + icons */
+
+/* ≤ 1280px: hide dropdown label text (icon-only dropdowns), tighten link spacing */
+@media (max-width: 1280px) {
+  .navbar-dropdown-label {
+    display: none;
+  }
+
+  .navbar-dropdown-trigger {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+
+  .navbar-links {
+    gap: 0;
+  }
+
+  .navbar-links a {
+    padding: 5px 8px;
+    font-size: 0.82rem;
+  }
+
+  .navbar-controls {
+    gap: 6px;
+  }
+}
+
+/* ≤ 1100px: also hide user name, keep only avatar + tier badge */
+@media (max-width: 1100px) {
+  .user-name-label {
+    display: none;
+  }
+
+  .navbar {
+    padding: 0 12px;
+  }
+}
+
+/* ≤ 900px: hide dropdowns entirely, keep links + icons */
 @media (max-width: 900px) {
   .navbar-dropdown-container {
     display: none;
@@ -607,6 +644,7 @@ body {
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-primary);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px 0;
   position: sticky;
   top: 56px;
@@ -687,6 +725,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px 24px;
   gap: 16px;
 }
@@ -1763,6 +1802,7 @@ body {
 .estimate-items {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px;
   background: var(--bg-primary);
 }
@@ -2158,6 +2198,7 @@ body {
   gap: 8px;
   max-height: 480px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 4px;
   /* Space for scrollbar */
 }
@@ -2848,6 +2889,7 @@ body {
   gap: 6px;
   max-height: 300px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
   scrollbar-width: thin;
   scrollbar-color: var(--scm-border) transparent;

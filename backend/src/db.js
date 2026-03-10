@@ -194,6 +194,7 @@ export async function initDB() {
     await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_start TIMESTAMP WITH TIME ZONE;`);
     await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_end TIMESTAMP WITH TIME ZONE;`);
     await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;`);
+    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS razorpay_payment_id TEXT;`);
     await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;`);
 
     // Usage tracking table

@@ -29,6 +29,14 @@ function init() {
     }
 }
 
+/** Wipe all estimate-related localStorage keys and return a clean slate */
+function clearEstimateStorage() {
+    localStorage.removeItem('azure_estimate_items');
+    localStorage.removeItem('azure_estimate_active_id');
+    localStorage.removeItem('azure_estimate_active_title');
+    localStorage.removeItem('azure_estimate_owner_uid');
+}
+
 function estimateReducer(state, action) {
     switch (action.type) {
         case 'ADD_ITEM': {
@@ -108,9 +116,25 @@ export function EstimateProvider({ children }) {
     }, [state.items, state.currency, state.region, state.activeEstimateId, state.activeEstimateTitle]);
     const { user, token, loading } = useAuth();
 
+    // Clear items when a DIFFERENT user logs in (prevent cross-user data leakage)
+    useEffect(() => {
+        if (loading) return;
+
+        if (user) {
+            const storedOwner = localStorage.getItem('azure_estimate_owner_uid');
+            if (storedOwner && storedOwner !== user.uid) {
+                // Different user — wipe previous user's in-memory items and localStorage
+                dispatch({ type: 'CLEAR_ALL' });
+                clearEstimateStorage();
+            }
+            // Record this user as the owner of the current estimate workspace
+            localStorage.setItem('azure_estimate_owner_uid', user.uid);
+        }
+    }, [user?.uid, loading]);
+
     // Load user preferences on login
     useEffect(() => {
-        if (loading) return; // Wait for auth to initialize
+        if (loading) return;
 
         if (user) {
             if (user.preferred_currency && user.preferred_currency !== state.currency) {
@@ -120,8 +144,6 @@ export function EstimateProvider({ children }) {
                 dispatch({ type: 'SET_REGION', payload: user.preferred_region });
             }
         }
-        // We no longer clear localStorage here when user is null.
-        // This allows guest users to persist their estimates across refreshes.
     }, [user?.id, loading]);
 
     const updatePreferences = useCallback(async (updates) => {

@@ -139,9 +139,6 @@ function Navbar() {
       <div className="navbar-controls">
         {!isHome && location.pathname !== '/login' && (
           <>
-            <NavLink to="/support" className={({ isActive }) => `navbar-support-link${isActive ? ' active' : ''}`} title="Support">
-              <HelpCircle size={17} />
-            </NavLink>
             <NavbarDropdown
               value={region}
               options={AZURE_REGIONS.map(r => ({ value: r.code, label: r.name }))}
@@ -165,6 +162,9 @@ function Navbar() {
             >
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
+            <NavLink to="/support" className={({ isActive }) => `navbar-support-link${isActive ? ' active' : ''}`} title="Support">
+              <HelpCircle size={17} />
+            </NavLink>
           </>
         )}
 
