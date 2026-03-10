@@ -1,0 +1,27 @@
+# Exclude heavy/unnecessary folders from the zip uploaded to Azure
+node_modules
+.env
+logs
+tests
+scripts/testing
+scripts/debug
+scripts/data
+*.log
+*.json.bak
+best_vm.json
+db_output.json
+debug_db_results.json
+raw_data_out.json
+test_out.json
+test_out2.json
+test_api_out.json
+test_api_call.js
+test_estimates.js
+test_estimates.json
+test_meter.js
+test_meter.py
+vm_reservation.json
+dupes_output.txt
+defender.json
+services.json
+restore_vms.py

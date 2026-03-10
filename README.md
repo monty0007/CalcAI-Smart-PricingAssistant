@@ -89,7 +89,7 @@ cp .env.example .env
 Edit `backend/.env` with your PostgreSQL credentials:
 ```env
 DATABASE_URL=postgresql://user:password@localhost:5432/azure_pricing
-PORT=3001
+PORT=3001                         # Optional — defaults to 3001 if not set
 JWT_SECRET=your_super_secret_string
 ```
 
@@ -109,7 +109,7 @@ cp .env.example .env
 
 Edit `frontend/.env` to link the AI and authentication providers:
 ```env
-VITE_API_URL=http://localhost:3001/api
+VITE_API_URL=http://localhost:3001/api   # Match the PORT set in backend/.env
 
 # Open AI API Credentials
 VITE_OPENAI_ENDPOINT=https://api.openai.com/v1/chat/completions

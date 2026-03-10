@@ -4,12 +4,15 @@
     "description": "Backend for Azure Pricing Calculator — caches Azure pricing data in TursoDB",
     "main": "src/index.js",
     "type": "module",
+    "engines": {
+        "node": ">=20.0.0"
+    },
     "scripts": {
         "start": "node src/index.js",
         "dev": "node --watch --watch-path=./src src/index.js",
         "sync": "node -e \"import('./src/sync.js').then(m => m.runFullSync())\"",
         "sync:service": "node -e \"import('./src/sync.js').then(m => m.syncService(process.argv[1]))\" --"
-    },
+    },  
     "dependencies": {
         "@libsql/client": "^0.14.0",
         "bcrypt": "^6.0.0",
