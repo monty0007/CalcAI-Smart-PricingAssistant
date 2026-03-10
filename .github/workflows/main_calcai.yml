@@ -44,10 +44,18 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_69764139972F4CBEBC87396CB86DA479 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_B39516F5B8434EA5A8E39C3F0B765E69 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_B16CA8718B024FC8AD157234179135ED }}
-      - name: Stop app to free SCM site
-        run: az webapp stop --name calcai --resource-group calcAI-pricingcalculator
-      - name: Wait for SCM availability
-        run: sleep 15
+      - name: Wait for SCM to be ready
+        run: |
+          echo "Waiting for Kudu SCM to be available..."
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://calcai-bmcdephkb6bydzgf.scm.centralindia-01.azurewebsites.net)
+            echo "Attempt $i: SCM status = $STATUS"
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ] || [ "$STATUS" = "401" ]; then
+              echo "SCM is ready!"
+              break
+            fi
+            sleep 15
+          done
       - name: Deploy via Azure CLI
         run: |
           az webapp deploy \
@@ -55,14 +63,15 @@ jobs:
             --resource-group calcAI-pricingcalculator \
             --src-path deploy.zip \
             --type zip \
-            --async true
+            --async false
       - name: Configure startup command
         run: |
-          az webapp config set --name calcai --resource-group calcAI-pricingcalculator --startup-file "node src/index.js"
-      - name: Start app
-        run: az webapp start --name calcai --resource-group calcAI-pricingcalculator
+          az webapp config set \
+            --name calcai \
+            --resource-group calcAI-pricingcalculator \
+            --startup-file "node src/index.js"
       - name: Verify deployment
         run: |
-          echo "Waiting 30s for app to start..."
-          sleep 30
+          echo "Waiting 40s for app to start..."
+          sleep 40
           curl -sf https://calcai-bmcdephkb6bydzgf.centralindia-01.azurewebsites.net/api/health || echo "⚠️ Health check failed — check App Service logs"
