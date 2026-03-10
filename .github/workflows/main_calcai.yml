@@ -1,4 +1,3 @@
-
 name: Build and deploy CalcAI backend to Azure Web App
 
 on:
@@ -60,4 +59,5 @@ jobs:
           app-name: calcai
           slot-name: Production
           package: .
+
 
