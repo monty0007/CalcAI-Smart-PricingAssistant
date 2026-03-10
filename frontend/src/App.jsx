@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, Bot, Sun, Moon, Home, Server, UserCircle2, LogOut, ChevronDown, Globe, Banknote, Check } from 'lucide-react';
+import { LayoutDashboard, Bot, Sun, Moon, Home, Server, UserCircle2, LogOut, ChevronDown, Globe, Banknote, Check, Tag, HelpCircle, CreditCard, ShieldCheck } from 'lucide-react';
 import { EstimateProvider, useEstimate } from './context/EstimateContext';
 import { useAuth } from './context/AuthContext';
 import { AZURE_REGIONS } from './data/serviceCatalog';
@@ -9,6 +9,10 @@ import CalculatorPage from './pages/CalculatorPage';
 import LandingPage from './pages/LandingPage';
 import AiPage from './pages/AiPage';
 import VmComparisonPage from './pages/VmComparisonPage';
+import PricingPage from './pages/PricingPage';
+import BillingPage from './pages/BillingPage';
+import AdminPage from './pages/AdminPage';
+import SupportPage from './pages/SupportPage';
 import Logo from './components/Logo';
 import './index.css';
 
@@ -124,6 +128,10 @@ function Navbar() {
                 My Estimates
               </NavLink>
             ) : null}
+            <NavLink to="/pricing" className={({ isActive }) => isActive ? 'active' : ''}>
+              <Tag size={15} />
+              Pricing
+            </NavLink>
           </>
         )}
       </div>
@@ -131,6 +139,9 @@ function Navbar() {
       <div className="navbar-controls">
         {!isHome && location.pathname !== '/login' && (
           <>
+            <NavLink to="/support" className={({ isActive }) => `navbar-support-link${isActive ? ' active' : ''}`} title="Support">
+              <HelpCircle size={17} />
+            </NavLink>
             <NavbarDropdown
               value={region}
               options={AZURE_REGIONS.map(r => ({ value: r.code, label: r.name }))}
@@ -185,19 +196,43 @@ function Navbar() {
               <div className="user-avatar">
                 {user.photoURL
                   ? <img src={user.photoURL} alt="avatar" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
-                  : <UserCircle2 size={22} />
+                  : <UserCircle2 size={20} />
                 }
               </div>
-              <span className="user-name-label">{user.name?.split(' ')[0] || 'User'}</span>
-              <ChevronDown size={14} style={{ opacity: 0.6 }} />
+              <div className="user-trigger-info">
+                <span className="user-name-label">{user.name?.split(' ')[0] || 'User'}</span>
+                <span className={`user-tier-badge user-tier-badge--${user.subscription_tier || 'free'}`}>
+                  {user.subscription_tier === 'pro' ? 'Pro' : user.subscription_tier === 'plus' ? 'Plus' : 'Free'}
+                </span>
+              </div>
+              <ChevronDown size={13} className="user-trigger-chevron" />
             </button>
             {profileOpen && (
               <div className="user-dropdown">
-                <div className="user-dropdown-info">
-                  <strong>{user.name?.split(' ')[0] || 'User'}</strong>
-                  <span>{user.email}</span>
+                <div className={`user-dropdown-header user-dropdown-header--${user.subscription_tier || 'free'}`}>
+                  <div className="user-dropdown-avatar">
+                    {user.photoURL
+                      ? <img src={user.photoURL} alt="avatar" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                      : <UserCircle2 size={26} />
+                    }
+                  </div>
+                  <div className="user-dropdown-info">
+                    <strong>{user.name || 'User'}</strong>
+                    <span className="user-dropdown-email">{user.email}</span>
+                    <span className={`user-tier-badge user-tier-badge--${user.subscription_tier || 'free'} user-tier-badge--dropdown`}>
+                      {user.subscription_tier === 'pro' ? '✦ Pro Plan' : user.subscription_tier === 'plus' ? '✦ Plus Plan' : 'Free Plan'}
+                    </span>
+                  </div>
                 </div>
                 <hr className="user-dropdown-divider" />
+                <button className="user-dropdown-item" onClick={() => { setProfileOpen(false); navigate('/billing'); }}>
+                  <CreditCard size={14} /> Billing
+                </button>
+                {user.is_admin && (
+                  <button className="user-dropdown-item" onClick={() => { setProfileOpen(false); navigate('/admin'); }}>
+                    <ShieldCheck size={14} /> Admin Panel
+                  </button>
+                )}
                 <button className="user-dropdown-item danger" onClick={() => { setProfileOpen(false); logout(); navigate('/'); }}>
                   <LogOut size={14} /> Logout
                 </button>
@@ -249,6 +284,10 @@ function AppContent() {
         <Route path="/ai" element={<AiPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/my-estimates" element={<MyEstimates />} />
+        <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/billing" element={<BillingPage />} />
+        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/support" element={<SupportPage />} />
       </Routes>
     </>
   );

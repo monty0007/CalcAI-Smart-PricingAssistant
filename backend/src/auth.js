@@ -30,7 +30,7 @@ export async function authenticateToken(req, res, next) {
         // decoded.uid = Firebase UID, decoded.email = user's email
         // We look up the internal DB user_id to keep all FK references consistent
         const result = await query(
-            'SELECT id, email, name, preferred_region, preferred_currency FROM users WHERE firebase_uid = $1',
+            'SELECT id, email, name, preferred_region, preferred_currency, is_admin, subscription_tier FROM users WHERE firebase_uid = $1',
             [decoded.uid]
         );
         if (result.rows.length === 0) {
@@ -70,7 +70,7 @@ router.post('/firebase', async (req, res) => {
              ON CONFLICT (firebase_uid) DO UPDATE
                SET email = EXCLUDED.email,
                    name  = COALESCE(users.name, EXCLUDED.name)
-             RETURNING id, email, name, preferred_region, preferred_currency`,
+             RETURNING id, email, name, preferred_region, preferred_currency, is_admin, subscription_tier`,
             [email, name || email, uid]
         );
 
@@ -90,7 +90,7 @@ router.put('/preferences', authenticateToken, async (req, res) => {
              SET preferred_region   = COALESCE($1, preferred_region),
                  preferred_currency = COALESCE($2, preferred_currency)
              WHERE id = $3
-             RETURNING id, email, name, preferred_region, preferred_currency`,
+             RETURNING id, email, name, preferred_region, preferred_currency, is_admin, subscription_tier`,
             [region, currency, req.user.id]
         );
         res.json({ user: result.rows[0] });

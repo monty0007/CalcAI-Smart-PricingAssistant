@@ -1,6 +1,7 @@
 import express from 'express';
 import { query } from './db.js';
 import { authenticateToken } from './auth.js';
+import { checkTierLimit, incrementUsage } from './middleware/tierLimit.js';
 
 const router = express.Router();
 
@@ -48,7 +49,7 @@ router.get('/:id', async (req, res) => {
  * POST /api/estimates
  * Create a new estimate
  */
-router.post('/', async (req, res) => {
+router.post('/', checkTierLimit('estimates'), async (req, res) => {
     try {
         const { name, items, currency } = req.body;
         const cost = req.body.total_cost ?? req.body.totalCost ?? 0;
@@ -60,6 +61,7 @@ router.post('/', async (req, res) => {
              RETURNING id, name, total_cost, currency, created_at`,
             [req.user.id, name, JSON.stringify(items), cost, currency]
         );
+        await incrementUsage(req.user.id, 'estimates', req.tierInfo?.periodKey);
         res.json(result.rows[0]);
     } catch (err) {
         console.error(err);

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check, Save, X, LogIn, FileEdit, Settings } from 'lucide-react';
+import { ShoppingCart, Trash2, Download, RotateCcw, Pencil, Check, Save, X, LogIn, FileEdit, Settings, Lock } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
 import { useAuth } from '../context/AuthContext';
 import { formatPrice } from '../services/azurePricingApi';
@@ -60,7 +60,7 @@ export default function EstimatePanel({ onEditItem }) {
             });
             if (!res.ok) {
                 const d = await res.json();
-                throw new Error(d.error || 'Save failed');
+                throw new Error(d.message || d.error || 'Save failed');
             }
             if (!activeEstimateId) {
                 const data = await res.json();
@@ -516,9 +516,20 @@ export default function EstimatePanel({ onEditItem }) {
                                 >
                                     <Save size={13} /> {activeEstimateId ? "Update" : "Save"}
                                 </button>
-                                <button className="est-action-btn est-export-btn" onClick={handleExportExcel}>
-                                    <Download size={13} /> Excel
-                                </button>
+                                {(() => {
+                                    const tier = user?.subscription_tier || 'free';
+                                    const canExport = tier === 'plus' || tier === 'pro';
+                                    return (
+                                        <button
+                                            className={`est-action-btn est-export-btn${!canExport ? ' est-export-btn--locked' : ''}`}
+                                            onClick={canExport ? handleExportExcel : () => toast('Upgrade to Plus or Pro to export', { icon: '🔒' })}
+                                            title={canExport ? (tier === 'pro' ? 'Export to Excel (custom format available — contact us)' : 'Export to Excel') : 'Export available on Plus & Pro plans'}
+                                        >
+                                            {canExport ? <Download size={13} /> : <Lock size={13} />}
+                                            {' Excel'}{!canExport && ' ↗'}
+                                        </button>
+                                    );
+                                })()}
                                 <button className="est-action-btn est-clear-btn" onClick={() => setShowClearConfirm(true)}>
                                     <RotateCcw size={13} /> Clear
                                 </button>

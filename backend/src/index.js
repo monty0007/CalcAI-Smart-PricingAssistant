@@ -9,6 +9,9 @@ import authRouter, { authenticateToken } from './auth.js';
 import toolsRouter from './aiTools.js';
 import chatsRouter from './chats.js';
 import estimatesRouter from './estimates.js';
+import subscriptionsRouter from './subscriptions.js';
+import adminRouter from './admin.js';
+import supportRouter from './support.js';
 
 dotenv.config();
 
@@ -38,13 +41,23 @@ function serverCacheSet(key, data) {
 // ── Middleware ───────────────────────────────────
 app.use(cors());
 app.use(compression());
-app.use(express.json());
+// Save raw body for Stripe webhook signature verification
+app.use(express.json({
+    verify: (req, _res, buf) => {
+        if (req.originalUrl === '/api/subscriptions/webhook') {
+            req.rawBody = buf;
+        }
+    }
+}));
 
 // ── Routes ──────────────────────────────────────
 app.use('/api/auth', authRouter);
 app.use('/api/tools', toolsRouter);
 app.use('/api/chats', chatsRouter);
 app.use('/api/estimates', estimatesRouter);
+app.use('/api/subscriptions', subscriptionsRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/support', supportRouter);
 
 app.post('/api/logs', (req, res) => {
     const { message, data } = req.body;
@@ -281,6 +294,20 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
+// ── Cache warm-up ───────────────────────────────
+async function warmUpCaches() {
+    console.log('🔥 Warming up caches...');
+    const t = Date.now();
+    const currencies = ['USD', 'INR'];
+    await Promise.all(currencies.map(async (currency) => {
+        try {
+            const prices = await getBestVmPrices(currency);
+            serverCacheSet(`best-vm-prices:${currency}`, { count: prices.length, currency, items: prices });
+        } catch (e) { /* non-fatal */ }
+    }));
+    console.log(`✅ Cache warm-up done in ${Date.now() - t}ms`);
+}
+
 // ── Startup ─────────────────────────────────────
 async function start() {
     console.log('🚀 Azure Pricing Backend');
@@ -295,6 +322,10 @@ async function start() {
 
     // Init database
     await initDB();
+
+    // Warm up in-memory cache for the most expensive queries so the first
+    // real user request is instant instead of hitting a cold DB.
+    warmUpCaches().catch(err => console.warn('⚠️  Cache warm-up failed:', err.message));
 
     // Start automated daily sync (Midnight)
     initScheduler();
@@ -422,6 +453,30 @@ app.get('/api/vm-list', async (req, res) => {
             paramIdx++;
         }
 
+        // Shared WHERE clause args for count query (no region param)
+        const countArgs = args.slice(1); // drop $1 (region)
+        const countParamOffset = paramIdx - 2; // number of extra args added for search
+        const countSearchClause = searchClause
+            ? searchClause.replace(/\$\d+/, `$${countParamOffset > 0 ? countParamOffset : 1}`)
+            : '';
+
+        const countSql = `
+            SELECT COUNT(DISTINCT sku_name) AS total
+            FROM azure_prices
+            WHERE currency_code = 'USD'
+              AND is_active = TRUE
+              AND service_name = 'Virtual Machines'
+              AND type = 'Consumption'
+              AND LOWER(sku_name) NOT LIKE '%spot%'
+              AND LOWER(sku_name) NOT LIKE '%low priority%'
+              ${countSearchClause}
+        `;
+
+        // LIMIT / OFFSET pushed to DB — no more JS-level slicing
+        const limitParamIdx = paramIdx;
+        const offsetParamIdx = paramIdx + 1;
+        args.push(safeLimit, safeOffset);
+
         const sql = `
             WITH all_skus AS (
                 SELECT DISTINCT sku_name
@@ -452,9 +507,16 @@ app.get('/api/vm-list', async (req, res) => {
                 AND p.type = 'Consumption'
             GROUP BY a.sku_name
             ORDER BY a.sku_name ASC
+            LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}
         `;
 
-        const result = await query(sql, args);
+        // Run main query and count in parallel
+        const [result, countResult] = await Promise.all([
+            query(sql, args),
+            query(countSql, countArgs),
+        ]);
+
+        const totalCount = parseInt(countResult.rows[0]?.total || 0);
 
         const items = result.rows.map(row => {
             const skuName = row.sku_key;
@@ -463,17 +525,15 @@ app.get('/api/vm-list', async (req, res) => {
             return { skuName, region, currency: currency.toUpperCase(), linuxPrice, windowsPrice, specs: null };
         });
 
-        const paginatedItems = items.slice(safeOffset, Math.min(items.length, safeOffset + safeLimit));
-
         const response = {
             region,
             currency: currency.toUpperCase(),
             exchangeRate: rate,
-            specsLoaded: 0,
-            count: items.length,
+            totalCount,
+            hasMore: safeOffset + items.length < totalCount,
             limit: safeLimit,
             offset: safeOffset,
-            items: paginatedItems
+            items,
         };
 
         serverCacheSet(cacheKey, response);
@@ -552,23 +612,6 @@ app.post('/api/vms/compare', async (req, res) => {
     } catch (err) {
         console.error('Compare pricing error:', err);
         res.status(500).json({ error: 'Comparison failed', message: err.message });
-    }
-});
-
-// ── Saved Quotations / Estimates handling mapped to estimatesRouter ──
-
-
-/**
- * DELETE /api/estimates/:id
- */
-app.delete('/api/estimates/:id', authenticateToken, async (req, res) => {
-    try {
-        const { query } = await import('./db.js');
-        await query(`DELETE FROM estimates WHERE id = $1 AND user_id = $2`, [req.params.id, req.user.id]);
-        res.json({ ok: true });
-    } catch (err) {
-        console.error('Delete estimate error:', err);
-        res.status(500).json({ error: 'Failed to delete estimate' });
     }
 });
 

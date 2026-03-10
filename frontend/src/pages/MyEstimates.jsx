@@ -6,10 +6,11 @@ import { formatPrice } from '../services/azurePricingApi';
 import {
     Trash2, Download, FolderOpen, Plus, Pencil, Check, X,
     FileSpreadsheet, Clock, Tag, Save, AlertCircle, Package,
-    TrendingUp, RefreshCw, LayoutGrid, List
+    TrendingUp, RefreshCw, LayoutGrid, List, Lock
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import toast from 'react-hot-toast';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -341,6 +342,7 @@ export default function MyEstimates() {
                                     onDelete={handleDelete}
                                     onRename={handleRename}
                                     onExport={handleExport}
+                                    canExport={user?.subscription_tier === 'plus' || user?.subscription_tier === 'pro'}
                                 />
                             ))}
                         </div>
@@ -413,7 +415,7 @@ function EstimateCard({
     est, viewMode,
     renamingId, renameValue, deleteConfirmId, loadConfirmId, exportingId, loadingId,
     setRenamingId, setRenameValue, setDeleteConfirmId, setLoadConfirmId,
-    onLoad, onLoadClick, onPreviewClick, onDelete, onRename, onExport
+    onLoad, onLoadClick, onPreviewClick, onDelete, onRename, onExport, canExport
 }) {
     const isRenaming = renamingId === est.id;
     const isDelConfirm = deleteConfirmId === est.id;
@@ -536,14 +538,17 @@ function EstimateCard({
                             <FileSpreadsheet size={13} /> View
                         </button>
                         <button
-                            className="me-footer-btn me-footer-btn--secondary"
-                            onClick={() => onExport(est)}
+                            className={`me-footer-btn me-footer-btn--secondary${!canExport ? ' me-footer-btn--locked' : ''}`}
+                            onClick={() => canExport ? onExport(est) : toast('Upgrade to Plus or Pro to export', { icon: '🔒' })}
                             disabled={isExporting}
+                            title={canExport ? 'Export to Excel' : 'Available on Plus & Pro plans'}
                         >
                             {isExporting ? (
                                 <><span className="me-btn-spinner" />…</>
-                            ) : (
+                            ) : canExport ? (
                                 <><Download size={13} /> Export</>
+                            ) : (
+                                <><Lock size={13} /> Export</>
                             )}
                         </button>
                         <button

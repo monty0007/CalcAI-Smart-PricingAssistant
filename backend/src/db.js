@@ -189,6 +189,40 @@ export async function initDB() {
     `);
     // Add microsoft_id to existing databases that were created before this column
     await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id TEXT;`);
+    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid TEXT;`);
+    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_tier TEXT DEFAULT 'free';`);
+    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_start TIMESTAMP WITH TIME ZONE;`);
+    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_end TIMESTAMP WITH TIME ZONE;`);
+    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;`);
+    await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;`);
+
+    // Usage tracking table
+    await query(`
+    CREATE TABLE IF NOT EXISTS usage_tracking (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        month TEXT NOT NULL,
+        ai_calls INTEGER DEFAULT 0,
+        estimate_count INTEGER DEFAULT 0,
+        UNIQUE(user_id, month)
+    );
+    `);
+
+    // Support tickets table
+    await query(`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        message TEXT NOT NULL,
+        status TEXT DEFAULT 'open',
+        admin_reply TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+    `);
 
     // 4. Estimates Table
     await query(`

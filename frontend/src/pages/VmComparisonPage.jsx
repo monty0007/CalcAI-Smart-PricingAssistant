@@ -95,6 +95,7 @@ export default function VmComparisonPage() {
     const [lastUpdate, setLastUpdate] = useState(null);
     const [hoveredSku, setHoveredSku] = useState(null);
     const [bestPrices, setBestPrices] = useState({});
+    const [bgLoading, setBgLoading] = useState(false); // background fetch indicator
 
     // Fetch optimal prices
     useEffect(() => {
@@ -126,25 +127,50 @@ export default function VmComparisonPage() {
             .catch(() => { setLastUpdate('unknown'); });
     }, []);
 
-    // Fetch ALL VMs when region or currency changes (only two triggers)
+    // Fetch first 500 VMs fast, then background-load the rest
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
         setLoadError(null);
         setAllVms([]);
         setVmRows([]);
+        setBgLoading(false);
 
-        fetchVmList({ currency, region, limit: 5000, offset: 0 })
-            .then(data => {
+        const PAGE_SIZE = 100;
+
+        fetchVmList({ currency, region, limit: PAGE_SIZE, offset: 0 })
+            .then(async data => {
                 if (cancelled) return;
-                const rows = data.items || [];
-                setAllVms(rows);
-                setVmRows(rows); // start with full list, filters apply next
+                const firstPage = data.items || [];
+                setAllVms(firstPage);
+                setLoading(false);
+
+                // Background-load remaining pages without blocking the UI
+                if (data.hasMore) {
+                    setBgLoading(true);
+                    let offset = PAGE_SIZE;
+                    while (!cancelled) {
+                        try {
+                            const more = await fetchVmList({ currency, region, limit: PAGE_SIZE, offset });
+                            if (cancelled) break;
+                            const items = more.items || [];
+                            if (items.length === 0) break;
+                            setAllVms(prev => [...prev, ...items]);
+                            if (!more.hasMore) break;
+                            offset += PAGE_SIZE;
+                        } catch {
+                            break;
+                        }
+                    }
+                    if (!cancelled) setBgLoading(false);
+                }
             })
             .catch(err => {
-                if (!cancelled) setLoadError(err.message || 'Failed to load VM list');
-            })
-            .finally(() => { if (!cancelled) setLoading(false); });
+                if (!cancelled) {
+                    setLoadError(err.message || 'Failed to load VM list');
+                    setLoading(false);
+                }
+            });
 
         return () => { cancelled = true; };
     }, [currency, region]);
@@ -262,7 +288,7 @@ export default function VmComparisonPage() {
                     <div>
                         <h1 className="vm-hero-title">Azure VM Pricing</h1>
                         <p className="vm-hero-subtitle">
-                            {allVms.length > 0 && !loading ? <><strong>{allVms.length}</strong> VMs{vmRows.length < allVms.length ? ` · ${vmRows.length} filtered` : ''} · </> : ''}
+                            {allVms.length > 0 && !loading ? <><strong>{allVms.length}</strong> VMs{vmRows.length < allVms.length ? ` · ${vmRows.length} filtered` : ''}{bgLoading ? <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · loading more…</span> : ''} · </> : ''}
                             <span className="vm-update-chip">
                                 {lastUpdate instanceof Date ? `Updated ${lastUpdate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : (lastUpdate === 'unknown' ? '' : 'Loading data...')}
                             </span>

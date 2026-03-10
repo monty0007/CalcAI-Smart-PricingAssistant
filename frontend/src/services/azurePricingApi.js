@@ -246,11 +246,13 @@ export function getCurrencySymbol(code) {
 
 export function formatPrice(price, currencyCode = 'USD') {
   const symbol = getCurrencySymbol(currencyCode);
-  if (price === 0) return `${symbol}0.00`;
-  if (price < 0.01) return `${symbol}${price.toFixed(6)}`;
-  if (price < 1) return `${symbol}${price.toFixed(4)}`;
-  if (price >= 1000) return `${symbol}${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  return `${symbol}${price.toFixed(2)}`;
+  // Guard: null/undefined/NaN → treat as 0
+  const p = (price == null || isNaN(Number(price))) ? 0 : Number(price);
+  if (p === 0) return `${symbol}0.00`;
+  if (p < 0.01) return `${symbol}${p.toFixed(6)}`;
+  if (p < 1) return `${symbol}${p.toFixed(4)}`;
+  if (p >= 1000) return `${symbol}${p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${symbol}${p.toFixed(2)}`;
 }
 
 /**
