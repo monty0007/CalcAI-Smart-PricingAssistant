@@ -7,8 +7,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -26,40 +30,21 @@ jobs:
         run: |
           cd backend
           zip -r ../deploy.zip . \
-            --exclude "*.log" \
-            --exclude ".env" \
-            --exclude "logs/*" \
-            --exclude "tests/*" \
-            --exclude "scripts/testing/*" \
-            --exclude "scripts/debug/*" \
-            --exclude "best_vm.json" \
-            --exclude "db_output.json" \
-            --exclude "debug_db_results.json" \
-            --exclude "raw_data_out.json" \
-            --exclude "test_out.json" \
-            --exclude "test_out2.json" \
-            --exclude "test_api_out.json"
-          echo "Zip size: $(du -sh ../deploy.zip | cut -f1)"
-
-      - name: Upload deployment zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-app
-          path: deploy.zip
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: Download deployment zip
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-app
+            -x "node_modules/.cache/*" \
+            -x "*.log" \
+            -x ".env" \
+            -x "logs/*" \
+            -x "tests/*" \
+            -x "scripts/testing/*" \
+            -x "scripts/debug/*" \
+            -x "best_vm.json" \
+            -x "db_output.json" \
+            -x "debug_db_results.json" \
+            -x "raw_data_out.json" \
+            -x "test_out.json" \
+            -x "test_out2.json" \
+            -x "test_api_out.json"
+          ls -lh ../deploy.zip
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -68,11 +53,34 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_B39516F5B8434EA5A8E39C3F0B765E69 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_B16CA8718B024FC8AD157234179135ED }}
 
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: calcai
-          slot-name: Production
+      - name: Stop app to free SCM site
+        run: az webapp stop --name calcai --resource-group $(az webapp show --name calcai --query resourceGroup -o tsv)
+
+      - name: Wait for SCM availability
+        run: sleep 15
+
+      - name: Deploy via Azure CLI
+        run: |
+          az webapp deploy \
+            --name calcai \
+            --resource-group $(az webapp show --name calcai --query resourceGroup -o tsv) \
+            --src-path deploy.zip \
+            --type zip \
+            --async true
+
+      - name: Configure startup command
+        run: |
+          RG=$(az webapp show --name calcai --query resourceGroup -o tsv)
+          az webapp config set --name calcai --resource-group $RG --startup-file "node src/index.js"
+
+      - name: Start app
+        run: az webapp start --name calcai --resource-group $(az webapp show --name calcai --query resourceGroup -o tsv)
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting 30s for app to start..."
+          sleep 30
+          curl -sf https://calcai-bmcdephkb6bydzgf.centralindia-01.azurewebsites.net/api/health || echo "⚠️ Health check failed — check App Service logs"
           package: deploy.zip
 
 
