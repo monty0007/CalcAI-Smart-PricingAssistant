@@ -18,19 +18,30 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install backend dependencies
+      - name: Validate dependencies (no install — Azure Oryx handles it)
         working-directory: ./backend
-        run: npm install
+        run: node --input-type=module <<< "import fs from 'fs'; const p = JSON.parse(fs.readFileSync('package.json','utf8')); console.log('package.json OK — main:', p.main);"
 
-      - name: Build backend
-        working-directory: ./backend
-        run: npm run build --if-present
-
-      - name: Upload backend artifact
+      - name: Upload backend artifact (source only, no node_modules)
         uses: actions/upload-artifact@v4
         with:
           name: backend-app
-          path: backend
+          path: |
+            backend
+            !backend/node_modules/**
+            !backend/.env
+            !backend/logs/**
+            !backend/tests/**
+            !backend/scripts/testing/**
+            !backend/scripts/debug/**
+            !backend/*.log
+            !backend/best_vm.json
+            !backend/db_output.json
+            !backend/debug_db_results.json
+            !backend/raw_data_out.json
+            !backend/test_out.json
+            !backend/test_out2.json
+            !backend/test_api_out.json
 
   deploy:
     runs-on: ubuntu-latest
