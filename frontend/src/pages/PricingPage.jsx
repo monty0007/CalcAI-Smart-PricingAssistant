@@ -30,7 +30,7 @@ const PLANS = [
     {
         id: 'plus',
         name: 'Plus',
-        price: '₹249',
+        price: '₹199',
         period: '/month',
         description: 'For professionals who need more power.',
         icon: Star,

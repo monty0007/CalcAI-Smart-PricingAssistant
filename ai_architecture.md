@@ -39,3 +39,15 @@ For instance: *"The price for 5 Standard D2s v3 VMs running Windows in East US w
 
 ### 6. Display to User
 The final message block is streamed or returned to the frontend `/api/chat` endpoint and immediately formatted onto the user's screen in the chat interface. Because of this exact tool-calling structure, our AI avoids hallucinating prices and provides results intrinsically tethered to the live backend data.
+
+
+---
+
+## Testing Rule
+
+**All test and debug scripts must live in `backend/scripts/testing/`.** This is the only designated place for exploratory scripts, one-off checks, and throwaway test files.
+
+- Create test scripts inside `backend/scripts/testing/`
+- Delete them once they are no longer needed
+- Never leave loose test/debug files in the project root, `backend/`, or any other folder
+- Never commit temporary output dumps (e.g. `out.json`, `test_out.json`, `debug_*.json`) -- run locally and delete when done

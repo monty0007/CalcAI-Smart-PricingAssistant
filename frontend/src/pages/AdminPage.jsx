@@ -216,8 +216,8 @@ function DashboardTab({ token }) {
     const totalTickets = stats.tickets?.total    || 0;
     const resolvedTickets = stats.tickets?.resolved || 0;
 
-    // Rough MRR: plus=$12, pro=$29
-    const mrr = plus * 12 + pro * 29;
+    // Rough MRR: plus=₹199, pro=₹499
+    const mrr = plus * 199 + pro * 499;
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -233,7 +233,7 @@ function DashboardTab({ token }) {
                     <MiniBar value={paying} max={total} color="#059669" />
                 </StatCard>
 
-                <StatCard label="Est. Monthly Revenue" value={`$${mrr.toLocaleString()}`} icon={DollarSign} color="#7c3aed" accent
+                <StatCard label="Est. Monthly Revenue" value={`₹${mrr.toLocaleString()}`} icon={DollarSign} color="#7c3aed" accent
                     sub="Based on Plus & Pro seats" />
 
                 <StatCard label="Open Tickets" value={openTickets} icon={Ticket}
@@ -266,9 +266,9 @@ function DashboardTab({ token }) {
 
                     {/* Tier rows */}
                     {[
-                        { label: 'Pro',  count: pro,  pct: proPct,  color: '#059669', icon: Crown,      desc: '$29/mo' },
-                        { label: 'Plus', count: plus, pct: plusPct, color: '#7c3aed', icon: TrendingUp, desc: '$12/mo' },
-                        { label: 'Free', count: free, pct: freePct, color: '#94a3b8', icon: Zap,        desc: '$0/mo'  },
+                        { label: 'Pro',  count: pro,  pct: proPct,  color: '#059669', icon: Crown,      desc: '₹499/mo' },
+                        { label: 'Plus', count: plus, pct: plusPct, color: '#7c3aed', icon: TrendingUp, desc: '₹199/mo' },
+                        { label: 'Free', count: free, pct: freePct, color: '#94a3b8', icon: Zap,        desc: '₹0/mo'   },
                     ].map(tier => {
                         const TIcon = tier.icon;
                         return (

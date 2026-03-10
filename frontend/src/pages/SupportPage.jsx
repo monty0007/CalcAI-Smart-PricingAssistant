@@ -11,7 +11,7 @@ const FAQS = [
     },
     {
         q: "What's included in the Plus plan?",
-        a: '300 AI messages per month, 20 saved estimates, and Export to Excel — all for ₹249/month.',
+        a: '300 AI messages per month, 20 saved estimates, and Export to Excel — all for ₹199/month.',
     },
     {
         q: 'Can I get a custom Excel export format?',
