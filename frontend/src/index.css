@@ -725,7 +725,6 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 20px 24px;
   gap: 16px;
 }

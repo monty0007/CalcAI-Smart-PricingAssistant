@@ -442,7 +442,7 @@ async function generateChatTitle(query) {
 // ── Main page ─────────────────────────────────────────────────────────
 export default function AiPage() {
     const { currency, addItem } = useEstimate();
-    const { token, loading: authLoading } = useAuth();
+    const { user, token, loading: authLoading } = useAuth();
     const navigate = useNavigate();
     const hasAI = Boolean(AI_ENDPOINT && AI_API_KEY);
 
@@ -548,6 +548,7 @@ export default function AiPage() {
     }
 
     async function handleSend(text) {
+        if (!user) { navigate('/login'); return; }
         const query = (text || input).trim();
         if (!query || loading) return;
         setInput('');
@@ -911,6 +912,24 @@ export default function AiPage() {
 
                 {/* ── Input box ───────────────────────────────────── */}
                 <div className="ai-input-area">
+                    {!user ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '18px 16px' }}>
+                            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.88rem', textAlign: 'center' }}>
+                                Sign in to start chatting with the AI assistant
+                            </p>
+                            <button
+                                onClick={() => navigate('/login')}
+                                style={{
+                                    padding: '8px 28px', borderRadius: 8, border: 'none',
+                                    background: 'var(--accent)', color: 'white', fontWeight: 600,
+                                    fontSize: '0.88rem', cursor: 'pointer',
+                                }}
+                            >
+                                Log in to continue
+                            </button>
+                        </div>
+                    ) : (
+                        <>
                     <div className="ai-input-wrap">
                         <textarea
                             ref={inputRef}
@@ -949,6 +968,8 @@ export default function AiPage() {
                     <p className="ai-input-hint">
                         Prices are fetched live from Microsoft Azure · Press <kbd>Enter</kbd> to send
                     </p>
+                        </>
+                    )}
                 </div>
             </div>
 

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Search, ArrowLeft, X, Check, ChevronDown, Download, SlidersHorizontal, Info, ArrowUp, ArrowDown } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
 import { fetchVmList, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES, fetchBestVmPrices } from '../services/azurePricingApi';
@@ -74,17 +74,7 @@ export default function VmComparisonPage() {
     const [sortConfig, setSortConfig] = useState({ key: 'linuxPrice', direction: 'asc' });
     const [selectedSkus, setSelectedSkus] = useState([]);
 
-    const observer = useRef();
-    const lastRowRef = useCallback(node => {
-        if (loading) return;
-        if (observer.current) observer.current.disconnect();
-        observer.current = new IntersectionObserver(entries => {
-            if (entries[0].isIntersecting && visibleCount < vmRows.length) {
-                setVisibleCount(prev => prev + 100);
-            }
-        });
-        if (node) observer.current.observe(node);
-    }, [loading, visibleCount, vmRows.length]);
+    const loadMore = () => setVisibleCount(prev => prev + 100);
 
     const [showPricingCard, setShowPricingCard] = useState(false);
     const [pricingPeriod, setPricingPeriod] = useState('monthly');
@@ -457,13 +447,29 @@ export default function VmComparisonPage() {
                                 </td>
                             </tr>
                         )}
-                        {!loading && visibleCount < vmRows.length && (
-                            <tr ref={lastRowRef}>
-                                <td colSpan={6} style={{ height: '40px' }}></td>
-                            </tr>
-                        )}
                     </tbody>
                 </table>
+
+                {!loading && visibleCount < vmRows.length && (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}>
+                        <button
+                            onClick={loadMore}
+                            style={{
+                                padding: '8px 32px', borderRadius: 8,
+                                border: '1px solid var(--border-primary)',
+                                background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)',
+                                fontWeight: 600, fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                        >
+                            Load More
+                        </button>
+                    </div>
+                )}
             </div>
 
             {loadError && (

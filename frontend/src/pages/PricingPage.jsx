@@ -75,7 +75,7 @@ export default function PricingPage() {
     const { user, token, refreshUser } = useAuth();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(null);
-    const currentTier = user?.subscription_tier || 'free';
+    const currentTier = user ? (user.subscription_tier || 'free') : null;
 
     // Dynamically load Razorpay checkout.js once
     function loadRazorpayScript() {
@@ -260,7 +260,7 @@ export default function PricingPage() {
                             </ul>
 
                             {/* CTA */}
-                            {plan.id === currentTier ? (
+                            {user && plan.id === currentTier ? (
                                 <button
                                     disabled
                                     style={{
@@ -282,7 +282,7 @@ export default function PricingPage() {
                                 >
                                     <CheckCircle2 size={14} /> Current Plan
                                 </button>
-                            ) : currentTier === 'pro' ? (
+                            ) : user && currentTier === 'pro' ? (
                                 <button
                                     disabled
                                     style={{
@@ -322,7 +322,7 @@ export default function PricingPage() {
                                     onMouseEnter={e => { if (!plan.highlight) e.currentTarget.style.background = 'var(--bg-tertiary)'; }}
                                     onMouseLeave={e => { if (!plan.highlight) e.currentTarget.style.background = 'var(--bg-surface)'; }}
                                 >
-                                    {loading === plan.id ? 'Processing…' : plan.cta}
+                                    {loading === plan.id ? 'Processing…' : !user ? (plan.id === 'free' ? 'Sign Up' : plan.cta) : plan.cta}
                                 </button>
                             )}
                         </div>
