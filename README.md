@@ -79,7 +79,7 @@ CalcAI/
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v20+)
+- [Node.js](https://nodejs.org/) (v22+)
 - Local or Cloud **PostgreSQL** Database
 
 ### 1️⃣ Configure Backend
@@ -192,7 +192,7 @@ Azure uses `npm start` to launch the server, which maps to `node src/index.js`.
 Before deploying to Azure App Service, verify every item below:
 
 **Runtime & Build**
-- [ ] Azure App Service is set to **Node.js 20 LTS** (matches `"engines": { "node": ">=20.0.0" }` in `package.json`)
+- [ ] Azure App Service is set to **Node.js 22 LTS** (matches `"engines": { "node": ">=22.0.0" }` in `package.json`)
 - [ ] `npm start` runs cleanly locally with `NODE_ENV=production` — no errors
 - [ ] No hardcoded `localhost` URLs anywhere in `backend/src/`
 

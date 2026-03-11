@@ -13,30 +13,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install production dependencies
-        working-directory: ./backend
-        run: npm ci --omit=dev
       - name: Create deployment zip
         run: |
           cd backend
           zip -r ../deploy.zip . \
-            -x "node_modules/.cache/*" \
-            -x "*.log" \
+            -x "node_modules/*" \
             -x ".env" \
+            -x ".env.example" \
+            -x ".gitignore" \
             -x "logs/*" \
+            -x "*.log" \
             -x "tests/*" \
+            -x "data/*" \
             -x "scripts/testing/*" \
             -x "scripts/debug/*" \
+            -x "scripts/data/*" \
+            -x "scripts/add_indexes.js" \
+            -x "scripts/azure_pricing_dump.json" \
+            -x "scripts/fetch_azure_prices.py" \
+            -x "scripts/generate_vm_specs.py" \
+            -x "scripts/initial_pricing_load.py" \
+            -x "scripts/json_to_postgres.py" \
+            -x "scripts/restore_vms.py" \
+            -x "scripts/update_vm_types.py" \
+            -x "src/cron.js" \
+            -x "src/debug_internal.js" \
+            -x "src/debug_robust.js" \
+            -x "src/test_import.js" \
+            -x "deploy.zip" \
+            -x "*.json.bak" \
             -x "best_vm.json" \
             -x "db_output.json" \
             -x "debug_db_results.json" \
             -x "raw_data_out.json" \
             -x "test_out.json" \
             -x "test_out2.json" \
-            -x "test_api_out.json"
+            -x "test_api_out.json" \
+            -x "test_estimates.json" \
+            -x "dupes_output.txt"
           ls -lh ../deploy.zip
       - name: Login to Azure
         uses: azure/login@v2
@@ -48,7 +65,7 @@ jobs:
         run: |
           echo "Waiting for Kudu SCM to be available..."
           for i in {1..10}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://calcai-bmcdephkb6bydzgf.scm.centralindia-01.azurewebsites.net)
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://azure-pricing-calc-bjcnfxdahra9fhbv.scm.centralindia-01.azurewebsites.net)
             echo "Attempt $i: SCM status = $STATUS"
             if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ] || [ "$STATUS" = "401" ]; then
               echo "SCM is ready!"
@@ -59,7 +76,7 @@ jobs:
       - name: Deploy via Azure CLI
         run: |
           az webapp deploy \
-            --name calcai \
+            --name azure-pricing-calc \
             --resource-group calcAI-pricingcalculator \
             --src-path deploy.zip \
             --type zip \
@@ -67,11 +84,19 @@ jobs:
       - name: Configure startup command
         run: |
           az webapp config set \
-            --name calcai \
+            --name azure-pricing-calc \
             --resource-group calcAI-pricingcalculator \
             --startup-file "node src/index.js"
       - name: Verify deployment
         run: |
-          echo "Waiting 40s for app to start..."
-          sleep 40
-          curl -sf https://calcai-bmcdephkb6bydzgf.centralindia-01.azurewebsites.net/api/health || echo "⚠️ Health check failed — check App Service logs"
+          echo "Waiting 90s for app to start (Oryx building deps on server)..."
+          sleep 90
+          for i in {1..5}; do
+            if curl -sf https://azure-pricing-calc-bjcnfxdahra9fhbv.centralindia-01.azurewebsites.net/api/health; then
+              echo "✅ Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 20s..."
+            sleep 20
+          done
+          echo "⚠️ Health check failed — check App Service logs"

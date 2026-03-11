@@ -1,13 +1,44 @@
-# Exclude heavy/unnecessary folders from the zip uploaded to Azure
+# Dependencies & environment
 node_modules
 .env
+.env.example
+.gitignore
+
+# Logs
 logs
+*.log
+
+# Tests
 tests
+
+# Data files (static JSON not used at runtime)
+data
+
+# Scripts — debug, testing, and one-time utilities
+# (keep only update_currency_rates.py & update_prices.py for nightly scheduler)
 scripts/testing
 scripts/debug
 scripts/data
-*.log
+scripts/add_indexes.js
+scripts/azure_pricing_dump.json
+scripts/fetch_azure_prices.py
+scripts/generate_vm_specs.py
+scripts/initial_pricing_load.py
+scripts/json_to_postgres.py
+scripts/restore_vms.py
+scripts/update_vm_types.py
+
+# Standalone debug/test source files (not imported by app)
+src/cron.js
+src/debug_internal.js
+src/debug_robust.js
+src/test_import.js
+
+# Build artifacts & misc
+deploy.zip
 *.json.bak
+
+# Debug/test output files
 best_vm.json
 db_output.json
 debug_db_results.json
@@ -15,13 +46,5 @@ raw_data_out.json
 test_out.json
 test_out2.json
 test_api_out.json
-test_api_call.js
-test_estimates.js
 test_estimates.json
-test_meter.js
-test_meter.py
-vm_reservation.json
 dupes_output.txt
-defender.json
-services.json
-restore_vms.py
