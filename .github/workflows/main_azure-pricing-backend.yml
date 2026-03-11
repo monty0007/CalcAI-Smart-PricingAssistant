@@ -1,4 +1,4 @@
-name: Build and deploy Node.js app to Azure Web App - azure-pricing-backend
+name: Build and deploy CalcAI backend to Azure Web App
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js version
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22.x'
@@ -65,10 +65,40 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_9F53C249A8D7428EB3B23A9DBE9BBEEB }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_57ACE6578C7B4DE6BB180291C06304A5 }}
 
-      - name: Deploy to Azure Web App
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: 'azure-pricing-backend'
-          slot-name: 'Production'
-          package: deploy.zip
+      - name: Wait for SCM site to be ready
+        run: |
+          echo "Waiting for Kudu SCM to be available..."
+          for i in {1..15}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              https://azure-pricing-backend-gkcygwa2gmf7fmaw.scm.centralindia-01.azurewebsites.net/)
+            echo "Attempt $i: SCM status = $STATUS"
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "302" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "403" ]; then
+              echo "SCM is ready!"
+              break
+            fi
+            echo "SCM not ready yet, waiting 20s..."
+            sleep 20
+          done
+
+      - name: Deploy via Azure CLI
+        run: |
+          az webapp deploy \
+            --name azure-pricing-backend \
+            --resource-group calcAI-pricingcalculator \
+            --src-path deploy.zip \
+            --type zip \
+            --async false
+
+      - name: Configure startup command
+        run: |
+          az webapp config set \
+            --name azure-pricing-backend \
+            --resource-group calcAI-pricingcalculator \
+            --startup-file "node src/index.js"
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting 45s for app to start..."
+          sleep 45
+          curl -sf https://azure-pricing-backend-gkcygwa2gmf7fmaw.centralindia-01.azurewebsites.net/api/health \
+            || echo "⚠️ Health check failed — check App Service logs"
