@@ -36,3 +36,12 @@ update.log
 *.txt
 !README.md
 !requirements.txt
+
+# Azure deployment/debug artifacts
+backend/appservice-logs-*/
+backend/appservice-logs-*.zip
+frontend/.appservice-static/
+frontend/appservice-static.zip
+frontend/dist-deploy.zip
+frontend/frontend*-logs/
+frontend/frontend*-logs.zip
