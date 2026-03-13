@@ -44,33 +44,109 @@ The backend originally utilized SQLite via Turso. We have successfully migrated 
 ### Project Layout
 ```text
 CalcAI/
-├── ai_architecture.md     # Architecture and design notes for the AI logic
-├── README.md              # Project documentation
-│
-├── backend/               # Node.js and Python backend environment
-│   ├── .env               # Database connection strings and environment variables
-│   ├── .env.example       # Template for environment variables
-│   ├── package.json       # Backend Node dependencies
-│   ├── requirements.txt   # Python dependencies for sync scripts
-│   ├── data/              # Reference JSON files (vm_specs, regions, services, etc.)
-│   ├── scripts/           # Data sync & maintenance scripts (fetch, update, restore)
-│   │   └── testing/       # ⚠️ All throwaway test/debug scripts go here — delete when done
-│   ├── src/               # Main backend source code/routes (e.g., db.js, index.js)
-│   └── tests/             # Test and debug scripts (test_*.js, check_*.js)
-│
-└── frontend/              # Vite + React Frontend application
-    ├── index.html         # Main HTML entry point
-    ├── package.json       # React dependencies and scripts
-    ├── public/            # Static assets (contains vite.svg holding the tab favicon)
-    └── src/               # React Source Code
-        ├── main.jsx       # React DOM mount point
-        ├── App.jsx        # Root component and navigation routing
-        ├── index.css      # Core CSS, CSS variables, and theme styling
-        ├── components/    # Reusable UI components (e.g., Logo.jsx, modals)
-        ├── context/       # React Context providers (AuthContext, EstimateContext)
-        ├── data/          # Static configuration data (e.g., serviceCatalog.js)
-        ├── pages/         # Full page views (LandingPage.jsx, AiPage.jsx, etc.)
-        └── services/      # REST API integration logic (azurePricingApi.js, etc.)
+├── .github/
+│   └── workflows/
+│       └── main_azure-pricing-backend.yml
+├── .vscode/
+│   └── settings.json
+├── ai_architecture.md
+├── README.md
+├── backend/
+│   ├── .deployignore
+│   ├── .deployment
+│   ├── .env
+│   ├── .env.example
+│   ├── .gitignore
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── requirements.txt
+│   ├── data/
+│   │   ├── defender.json
+│   │   ├── regions.json
+│   │   ├── services.json
+│   │   ├── vm_reservation.json
+│   │   └── vm_specs.json
+│   ├── scripts/
+│   │   ├── add_indexes.js
+│   │   ├── fetch_azure_prices.py
+│   │   ├── generate_vm_specs.py
+│   │   ├── initial_pricing_load.py
+│   │   ├── json_to_postgres.py
+│   │   ├── restore_vms.py
+│   │   ├── update_currency_rates.py
+│   │   ├── update_prices.py
+│   │   ├── update_vm_types.py
+│   │   └── data/
+│   └── src/
+│       ├── admin.js
+│       ├── aiTools.js
+│       ├── auth.js
+│       ├── chats.js
+│       ├── cron.js
+│       ├── db.js
+│       ├── debug_internal.js
+│       ├── debug_robust.js
+│       ├── estimates.js
+│       ├── index.js
+│       ├── scheduler.js
+│       ├── subscriptions.js
+│       ├── support.js
+│       ├── sync.js
+│       ├── test_import.js
+│       └── middleware/
+│           └── tierLimit.js
+└── frontend/
+    ├── .env
+    ├── .env.example
+    ├── .gitignore
+    ├── build_output.txt
+    ├── eslint.config.js
+    ├── index.html
+    ├── lint_output.txt
+    ├── lint_output_utf8.txt
+    ├── package-lock.json
+    ├── package.json
+    ├── vercel.json
+    ├── vite.config.js
+    ├── dist/
+    │   ├── index.html
+    │   ├── vite.svg
+    │   └── assets/
+    ├── public/
+    │   └── vite.svg
+    └── src/
+        ├── App.jsx
+        ├── firebase.js
+        ├── index.css
+        ├── main.jsx
+        ├── assets/
+        │   └── react.svg
+        ├── components/
+        │   ├── EstimatePanel.jsx
+        │   ├── Logo.jsx
+        │   ├── QuotationsDrawer.jsx
+        │   ├── ServiceConfigModal.jsx
+        │   └── TierLimitModal.jsx
+        ├── context/
+        │   ├── AuthContext.jsx
+        │   └── EstimateContext.jsx
+        ├── data/
+        │   └── serviceCatalog.js
+        ├── pages/
+        │   ├── AdminPage.jsx
+        │   ├── AiPage.jsx
+        │   ├── BillingPage.jsx
+        │   ├── CalculatorPage.jsx
+        │   ├── LandingPage.jsx
+        │   ├── LoginPage.jsx
+        │   ├── MyEstimates.jsx
+        │   ├── PricingPage.jsx
+        │   ├── SupportPage.jsx
+        │   └── VmComparisonPage.jsx
+        └── services/
+            ├── aiChatsApi.js
+            ├── azurePricingApi.js
+            └── subscriptionApi.js
 ```
 
 ---
