@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User, ArrowRight, CheckCircle, ArrowLeft } from 'lucide-react';
@@ -23,8 +23,12 @@ const FEATURES = [
 ];
 
 export default function LoginPage() {
-    const { login, signup, googleLogin } = useAuth();
+    const { login, signup, googleLogin, user } = useAuth();
     const navigate = useNavigate();
+
+    useEffect(() => {
+        if (user) navigate('/dashboard', { replace: true });
+    }, [user, navigate]);
 
     const [mode, setMode] = useState('login'); // 'login' | 'signup'
     const [name, setName] = useState('');

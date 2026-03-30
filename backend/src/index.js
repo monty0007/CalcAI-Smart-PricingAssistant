@@ -39,18 +39,7 @@ function serverCacheSet(key, data) {
 }
 
 // ── Middleware ───────────────────────────────────
-const allowedOrigins = process.env.ALLOWED_ORIGIN
-    ? process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim())
-    : ['http://localhost:5173', 'http://localhost:4173'];
-
-app.use(cors({
-    origin: (origin, cb) => {
-        // Allow requests with no origin (curl, Postman, server-to-server)
-        if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-        cb(new Error(`CORS: origin '${origin}' not allowed`));
-    },
-    credentials: true,
-}));
+app.use(cors({ origin: true, credentials: true }));
 app.use(compression());
 // Save raw body for Stripe webhook signature verification
 app.use(express.json({

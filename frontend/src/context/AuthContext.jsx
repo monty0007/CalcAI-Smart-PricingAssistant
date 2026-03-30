@@ -13,6 +13,7 @@ import { auth } from '../firebase';
 const AuthContext = createContext();
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 /**
  * After any Firebase sign-in, upsert the user in our PostgreSQL DB
@@ -97,7 +98,11 @@ export function AuthProvider({ children }) {
         setToken(idToken);
     };
 
-    const logout = () => signOut(auth);
+    const logout = async () => {
+        setUser(null);
+        setToken(null);
+        await signOut(auth);
+    };
 
     // Re-syncs the current user with the backend to pick up tier changes
     const refreshUser = async () => {

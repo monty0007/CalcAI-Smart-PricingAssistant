@@ -233,7 +233,7 @@ function Navbar() {
                     <ShieldCheck size={14} /> Admin Panel
                   </button>
                 )}
-                <button className="user-dropdown-item danger" onClick={() => { setProfileOpen(false); logout(); navigate('/'); }}>
+                <button className="user-dropdown-item danger" onClick={async () => { setProfileOpen(false); await logout(); navigate('/'); }}>
                   <LogOut size={14} /> Logout
                 </button>
               </div>
