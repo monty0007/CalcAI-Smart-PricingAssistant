@@ -12,10 +12,67 @@
  */
 
 import express from 'express';
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { query } from './db.js';
 import { authenticateToken } from './auth.js';
+import { runFullSync, runQuickSync } from './sync.js';
 
 const router = express.Router();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ── Sync job store (in-memory, resets on restart) ─────────────────────────────
+const syncJobs = new Map();
+
+function newJobId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function createJob(action, label) {
+    const id = newJobId();
+    const job = { id, action, label, status: 'running', logs: [], startedAt: new Date(), finishedAt: null };
+    syncJobs.set(id, job);
+    if (syncJobs.size > 50) syncJobs.delete(syncJobs.keys().next().value);
+    return job;
+}
+
+function spawnPython(scriptRelPath, job) {
+    return new Promise((resolve, reject) => {
+        const scriptPath = path.join(__dirname, scriptRelPath);
+        const scriptName = path.basename(scriptRelPath);
+        const cmd = process.env.PYTHON_CMD || 'python';
+        function trySpawn(c) {
+            const proc = spawn(c, [scriptPath], { env: process.env });
+            proc.stdout.on('data', d => {
+                d.toString().split('\n').filter(Boolean).forEach(line => job.logs.push(line));
+            });
+            proc.stderr.on('data', d => {
+                d.toString().split('\n').filter(Boolean).forEach(line => job.logs.push(`[stderr] ${line}`));
+            });
+            proc.on('error', err => {
+                if (err.code === 'ENOENT' && c === cmd && cmd !== 'python3') {
+                    trySpawn('python3');
+                } else {
+                    reject(new Error(`Failed to start: ${err.message}`));
+                }
+            });
+            proc.on('close', code => {
+                job.logs.push(`[exit] ${scriptName} exited with code ${code}`);
+                code === 0 ? resolve() : reject(new Error(`${scriptName} failed with exit code ${code}`));
+            });
+        }
+        trySpawn(cmd);
+    });
+}
+
+const SYNC_ACTION_META = {
+    quick_sync:      'Quick Sync (JS)',
+    full_sync:       'Full Price Sync (JS)',
+    python_prices:   'Update Prices',
+    python_currency: 'Update Currencies',
+    python_vm_types: 'Update VM Types',
+};
 
 // Apply auth guard to all routes (password gate is handled on the frontend)
 router.use(authenticateToken);
@@ -215,6 +272,106 @@ router.patch('/support/:id', async (req, res) => {
     } catch (err) {
         console.error('[admin/support/patch] Error:', err);
         res.status(500).json({ error: 'Failed to update ticket' });
+    }
+});
+
+// ── POST /api/admin/sync/run ─────────────────────────────────────────────────
+router.post('/sync/run', async (req, res) => {
+    const { action } = req.body;
+    if (!SYNC_ACTION_META[action]) {
+        return res.status(400).json({ error: `Unknown action: ${action}` });
+    }
+    const label = SYNC_ACTION_META[action];
+    const job = createJob(action, label);
+    res.json({ jobId: job.id, status: 'running' });
+
+    // Fire-and-forget — response already sent above
+    (async () => {
+        try {
+            job.logs.push(`[start] ${label} started at ${job.startedAt.toISOString()}`);
+            if (action === 'quick_sync') {
+                job.logs.push('[info] Running JS quick sync...');
+                await runQuickSync();
+                job.logs.push('[done] Quick sync complete.');
+            } else if (action === 'full_sync') {
+                job.logs.push('[info] Running JS full sync (this may take 30+ min)...');
+                await runFullSync();
+                job.logs.push('[done] Full sync complete.');
+            } else if (action === 'python_prices') {
+                await spawnPython('../scripts/update_prices.py', job);
+            } else if (action === 'python_currency') {
+                await spawnPython('../scripts/update_currency_rates.py', job);
+            } else if (action === 'python_vm_types') {
+                await spawnPython('../scripts/update_vm_types.py', job);
+            }
+            job.status = 'completed';
+        } catch (err) {
+            job.logs.push(`[error] ${err.message}`);
+            job.status = 'failed';
+        } finally {
+            job.finishedAt = new Date();
+        }
+    })();
+});
+
+// ── GET /api/admin/sync/jobs ──────────────────────────────────────────────────
+router.get('/sync/jobs', (req, res) => {
+    const jobs = Array.from(syncJobs.values())
+        .sort((a, b) => b.startedAt - a.startedAt)
+        .slice(0, 20)
+        .map(j => ({
+            id: j.id, action: j.action, label: j.label,
+            status: j.status, startedAt: j.startedAt, finishedAt: j.finishedAt,
+            logCount: j.logs.length,
+        }));
+    res.json({ jobs });
+});
+
+// ── GET /api/admin/sync/job/:id ───────────────────────────────────────────────
+router.get('/sync/job/:id', (req, res) => {
+    const job = syncJobs.get(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    res.json({
+        id: job.id, action: job.action, label: job.label,
+        status: job.status, logs: job.logs,
+        startedAt: job.startedAt, finishedAt: job.finishedAt,
+    });
+});
+
+// ── GET /api/admin/sync/stats — current DB data status ───────────────────────
+router.get('/sync/stats', async (req, res) => {
+    try {
+        const [priceStats, currencyRates, vmStats] = await Promise.all([
+            query(`
+                SELECT COUNT(*) AS total_prices,
+                       COUNT(*) FILTER (WHERE is_active = true) AS active_prices,
+                       MAX(created_at) AS last_price_update
+                FROM azure_prices
+            `).catch(() => ({ rows: [{}] })),
+            query(`
+                SELECT currency_code, rate_from_usd, last_updated
+                FROM currency_rates ORDER BY currency_code
+            `).catch(() => ({ rows: [] })),
+            query(`
+                SELECT COUNT(*) AS total_vms, MAX(updated_at) AS last_vm_update
+                FROM vm_types
+            `).catch(() => ({ rows: [{}] })),
+        ]);
+        res.json({
+            prices: {
+                total:       parseInt(priceStats.rows[0]?.total_prices  || 0),
+                active:      parseInt(priceStats.rows[0]?.active_prices || 0),
+                lastUpdated: priceStats.rows[0]?.last_price_update || null,
+            },
+            currencies: currencyRates.rows,
+            vmTypes: {
+                total:       parseInt(vmStats.rows[0]?.total_vms     || 0),
+                lastUpdated: vmStats.rows[0]?.last_vm_update || null,
+            },
+        });
+    } catch (err) {
+        console.error('[admin/sync/stats]', err);
+        res.status(500).json({ error: 'Failed to fetch sync stats' });
     }
 });
 

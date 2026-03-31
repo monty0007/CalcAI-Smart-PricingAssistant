@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { parse as parseDbUrl } from 'pg-connection-string';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -6,13 +7,16 @@ dotenv.config();
 const { Pool } = pg;
 
 // ── PostgreSQL Connection ───────────────────────
-// We use a connection pool for efficiency.
-// It will use process.env.DATABASE_URL by default if provided,
-// or you can pass { connectionString: ... } explicitly.
+// Parse the DATABASE_URL and force ssl rejectUnauthorized: false so that
+// Azure PostgreSQL's certificate is accepted even on local dev machines.
+// Passing ssl explicitly after parsing prevents pg from overriding it
+// with the sslmode from the URL (which it now treats as verify-full).
+const dbConfig = parseDbUrl(process.env.DATABASE_URL || '');
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    // Add SSL support if needed (e.g. for production Azure/AWS DBs)
-    // ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    ...dbConfig,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 15000,
+    idleTimeoutMillis: 30000,
 });
 
 /**

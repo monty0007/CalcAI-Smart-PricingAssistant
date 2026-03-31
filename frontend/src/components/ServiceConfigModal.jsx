@@ -442,13 +442,18 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     function handleSaveItem() {
         if (!selectedItem) return;
 
-        // Base item properties
-        const itemConfig = {
+        // Full hourly rate = compute + OS license (when applicable).
+        // This way the cart shows one row with the true total cost the user will pay.
+        const osExtra = vmMode && osCost.os !== 'Linux' && !hybridBenefit ? osCost.extra : 0;
+        const fullHourlyPrice = getComputeHourlyPrice() + osExtra;
+
+        const osLabel = osExtra > 0 ? ` + ${osCost.os} License` : '';
+        const computeConfig = {
             serviceName: selectedItem.serviceName,
             productName: selectedItem.productName,
             skuName: selectedItem.skuName,
-            meterName: `${selectedItem.meterName} (${pricingModel === 'payg' ? 'PAYG' : pricingModel.toUpperCase()})`,
-            retailPrice: getComputeHourlyPrice(),
+            meterName: `${selectedItem.meterName} (${pricingModel === 'payg' ? 'PAYG' : pricingModel.toUpperCase()})${osLabel}`,
+            retailPrice: fullHourlyPrice,
             unitOfMeasure: selectedItem.unitOfMeasure,
             armRegionName: selectedItem.armRegionName,
             location: selectedItem.location,
@@ -458,12 +463,9 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
         };
 
         if (editItem) {
-            // Update existing single instance
-            updateItem(editItem.id, itemConfig);
+            updateItem(editItem.id, computeConfig);
         } else {
-            // Add new instances
-            const itemsToSave = [];
-            itemsToSave.push(itemConfig);
+            const itemsToSave = [computeConfig];
 
             if (selectedDisk && diskCount > 0) {
                 itemsToSave.push({
@@ -480,7 +482,6 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                     hoursPerMonth: 730,
                 });
             }
-
 
             if (showSnapshot && snapshotSizeGB > 0) {
                 itemsToSave.push({
@@ -513,7 +514,6 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                     hoursPerMonth: 730,
                 });
             }
-
 
             if (showStorageTransactions && storageTransactionUnits > 0) {
                 itemsToSave.push({
@@ -556,7 +556,6 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
 
             itemsToSave.forEach(i => addItem(i));
         }
-
 
         setToast(true);
         setTimeout(() => setToast(false), 2000);

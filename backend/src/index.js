@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import compression from 'compression';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { initDB, queryPrices, getLastSync, getPriceCount, getBestVmPrices } from './db.js';
 import { runFullSync, runQuickSync } from './sync.js';
 import { initScheduler } from './scheduler.js';
@@ -58,6 +60,27 @@ app.use('/api/estimates', estimatesRouter);
 app.use('/api/subscriptions', subscriptionsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/support', supportRouter);
+
+// ── Bootstrap: one-time endpoint to grant is_admin ──────────────────────────
+// Usage: POST /api/bootstrap/make-admin
+//   Headers: { "x-bootstrap-secret": "<BOOTSTRAP_SECRET from .env>" }
+//   Body:    { "email": "you@example.com" }
+// Remove this endpoint (or leave it — it's a no-op without the secret in env)
+app.post('/api/bootstrap/make-admin', async (req, res) => {
+    const secret = process.env.BOOTSTRAP_SECRET;
+    if (!secret || req.headers['x-bootstrap-secret'] !== secret) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const { query: dbQuery } = await import('./db.js');
+    const result = await dbQuery(
+        'UPDATE users SET is_admin = true WHERE email = $1 RETURNING id, email, is_admin',
+        [email]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'User not found' });
+    res.json({ ok: true, user: result.rows[0] });
+});
 
 app.post('/api/logs', (req, res) => {
     const { message, data } = req.body;
@@ -320,8 +343,15 @@ async function start() {
         process.exit(1);
     }
 
-    // Init database
-    await initDB();
+    // Init database schema — non-fatal so the HTTP server always starts.
+    // DB errors will be handled per-request when the DB becomes available.
+    try {
+        await initDB();
+        console.log('✅ Database connected');
+    } catch (err) {
+        console.warn(`⚠️  Database unavailable at startup: ${err.message}`);
+        console.warn('   The server will start anyway. Add this machine\'s IP to Azure PostgreSQL firewall rules.');
+    }
 
     // Warm up in-memory cache for the most expensive queries so the first
     // real user request is instant instead of hitting a cold DB.
@@ -614,6 +644,18 @@ app.post('/api/vms/compare', async (req, res) => {
         res.status(500).json({ error: 'Comparison failed', message: err.message });
     }
 });
+
+// ── Serve React frontend in production (single-container Docker deployment) ──────────
+if (process.env.NODE_ENV === 'production') {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const distPath = path.join(__dirname, '../dist');
+    app.use(express.static(distPath));
+    // Catch-all: return index.html for any non-API route (React Router SPA)
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+    });
+}
 
 // ── Startup ─────────────────────────────────────────────────────────
 start().catch(err => {

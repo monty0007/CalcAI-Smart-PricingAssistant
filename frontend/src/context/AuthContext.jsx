@@ -22,6 +22,8 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 async function syncUserWithBackend(firebaseUser) {
     const idToken = await firebaseUser.getIdToken(/* forceRefresh */ false);
     try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
         const res = await fetch(`${API_URL}/auth/firebase`, {
             method: 'POST',
             headers: {
@@ -32,10 +34,12 @@ async function syncUserWithBackend(firebaseUser) {
                 name: firebaseUser.displayName || firebaseUser.email,
                 email: firebaseUser.email,
             }),
+            signal: controller.signal,
         });
+        clearTimeout(timer);
         if (res.ok) return await res.json(); // returns { user: { ... } }
     } catch (err) {
-        console.warn('Backend sync failed (will retry on next sign-in):', err);
+        console.warn('Backend sync failed (will retry on next sign-in):', err.name === 'AbortError' ? 'Request timed out' : err);
     }
     return null;
 }

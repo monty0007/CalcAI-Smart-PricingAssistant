@@ -81,6 +81,34 @@ export async function adminUpdateTicket(token, ticketId, data) {
     return res.json();
 }
 
+// ── Admin Sync / Maintenance ─────────────────────────────────────────────────
+export async function adminRunSync(token, action) {
+    const res = await authFetch(`${API_URL}/admin/sync/run`, token, {
+        method: 'POST',
+        body: JSON.stringify({ action }),
+    });
+    if (!res.ok) throw new Error('Failed to start sync job');
+    return res.json();
+}
+
+export async function adminGetSyncJobs(token) {
+    const res = await authFetch(`${API_URL}/admin/sync/jobs`, token);
+    if (!res.ok) throw new Error('Failed to fetch sync jobs');
+    return res.json();
+}
+
+export async function adminGetSyncJob(token, jobId) {
+    const res = await authFetch(`${API_URL}/admin/sync/job/${jobId}`, token);
+    if (!res.ok) throw new Error('Job not found');
+    return res.json();
+}
+
+export async function adminGetSyncStats(token) {
+    const res = await authFetch(`${API_URL}/admin/sync/stats`, token);
+    if (!res.ok) throw new Error('Failed to fetch sync stats');
+    return res.json();
+}
+
 // ── Support ──────────────────────────────────────────────────────────────────
 export async function submitSupportTicket(data) {
     const res = await fetch(`${API_URL}/support`, {

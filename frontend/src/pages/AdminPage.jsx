@@ -1,15 +1,17 @@
-﻿import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Users, BarChart2, Ticket, Trash2, Search, X,
     CheckCircle, Clock, AlertCircle, Lock, Eye, EyeOff,
     TrendingUp, UserCheck, Crown, Zap, RefreshCw,
-    Activity, MessageSquare, FileText, DollarSign
+    Activity, MessageSquare, FileText, DollarSign,
+    Database, Play, Server, Terminal,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
     adminGetStats, adminGetUsers, adminUpdateUserTier,
-    adminDeleteUser, adminGetTickets, adminUpdateTicket
+    adminDeleteUser, adminGetTickets, adminUpdateTicket,
+    adminRunSync, adminGetSyncJobs, adminGetSyncJob, adminGetSyncStats,
 } from '../services/subscriptionApi';
 import toast from 'react-hot-toast';
 
@@ -19,6 +21,7 @@ const TABS = [
     { id: 'dashboard', label: 'Overview',   icon: BarChart2 },
     { id: 'users',     label: 'Customers',  icon: Users },
     { id: 'support',   label: 'Support',    icon: Ticket },
+    { id: 'sync',      label: 'Data Sync',  icon: Database },
 ];
 
 const STATUS_BADGE = {
@@ -624,6 +627,300 @@ function SupportTicketsTab({ token }) {
     );
 }
 
+//  Data Sync / Maintenance Tab 
+function SyncTab({ token }) {
+    const [stats, setStats]           = useState(null);
+    const [statsErr, setStatsErr]     = useState(null);
+    const [recentJobs, setRecentJobs] = useState([]);
+    const [activeJob, setActiveJob]   = useState(null);
+    const [runningKey, setRunningKey] = useState(null);
+    const logRef = useRef(null);
+
+    const loadStats = useCallback(async () => {
+        try {
+            const data = await adminGetSyncStats(token);
+            setStats(data);
+            setStatsErr(null);
+        } catch {
+            setStatsErr('Failed to load data status.');
+        }
+    }, [token]);
+
+    const loadJobs = useCallback(async () => {
+        try {
+            const data = await adminGetSyncJobs(token);
+            setRecentJobs(data.jobs || []);
+        } catch {}
+    }, [token]);
+
+    useEffect(() => { loadStats(); loadJobs(); }, [loadStats, loadJobs]);
+
+    // Poll active job every 2s while running
+    useEffect(() => {
+        if (!activeJob || activeJob.status !== 'running') return;
+        const jobId = activeJob.id;
+        const t = setInterval(async () => {
+            try {
+                const data = await adminGetSyncJob(token, jobId);
+                setActiveJob(data);
+                if (data.status !== 'running') { loadStats(); loadJobs(); }
+            } catch {}
+        }, 2000);
+        return () => clearInterval(t);
+    }, [activeJob?.id, activeJob?.status, token, loadStats, loadJobs]);
+
+    // Auto-scroll log to bottom as lines come in
+    useEffect(() => {
+        if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+    }, [activeJob?.logs?.length]);
+
+    async function runAction(key, label) {
+        if (runningKey) return;
+        setRunningKey(key);
+        try {
+            const { jobId } = await adminRunSync(token, key);
+            setActiveJob({ id: jobId, action: key, label, status: 'running', logs: [], startedAt: new Date().toISOString() });
+            toast.success(`${label} started`);
+        } catch (err) {
+            toast.error(`Failed to start: ${err.message}`);
+        } finally {
+            setRunningKey(null);
+        }
+    }
+
+    async function openJob(jobId) {
+        try {
+            const data = await adminGetSyncJob(token, jobId);
+            setActiveJob(data);
+        } catch {}
+    }
+
+    function dur(start, end) {
+        if (!end) return null;
+        const ms = new Date(end) - new Date(start);
+        return ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${(ms / 60000).toFixed(1)}m`;
+    }
+    function ago(d) {
+        if (!d) return '—';
+        const s = (Date.now() - new Date(d)) / 1000;
+        if (s < 60) return 'just now';
+        if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+        if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+        return `${Math.floor(s / 86400)}d ago`;
+    }
+
+    const ACTIONS = [
+        { key: 'quick_sync',      label: 'Quick Sync',          badge: 'JS',     color: '#0078d4', icon: Zap,        desc: 'Fast: 5 services, INR, Central India' },
+        { key: 'full_sync',       label: 'Full Price Sync',      badge: 'JS',     color: '#7c3aed', icon: RefreshCw,  desc: 'All 27 services × 20 regions × 4 currencies' },
+        { key: 'python_prices',   label: 'Update Prices',        badge: 'Python', color: '#059669', icon: TrendingUp, desc: 'Fetch latest Azure retail prices from Azure API' },
+        { key: 'python_currency', label: 'Update Currencies',    badge: 'Python', color: '#0891b2', icon: DollarSign, desc: 'Derive exchange rates via Azure reference SKUs' },
+        { key: 'python_vm_types', label: 'Update VM Types',      badge: 'Python', color: '#6366f1', icon: Server,     desc: 'Download VM specs (CPU, GPU, memory) from CloudPrice' },
+    ];
+
+    const JOB_COLOR = { running: '#f59e0b', completed: '#10b981', failed: '#ef4444' };
+    const JOB_ICON  = {
+        running:   <RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} />,
+        completed: <CheckCircle size={11} />,
+        failed:    <AlertCircle size={11} />,
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* ── Data Status ── */}
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', padding: '20px 22px', boxShadow: 'var(--shadow-card)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Database size={15} style={{ color: 'var(--accent)' }} />
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Current Data Status</span>
+                    </div>
+                    <button onClick={loadStats} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem' }}>
+                        <RefreshCw size={12} /> Refresh
+                    </button>
+                </div>
+
+                {statsErr ? (
+                    <div style={{ color: '#ef4444', fontSize: '0.85rem' }}>{statsErr}</div>
+                ) : !stats ? (
+                    <Spinner />
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        {/* Metric cards */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                            {[
+                                { label: 'Total Prices',      value: stats.prices.total.toLocaleString(),   sub: `${stats.prices.active.toLocaleString()} active`,         color: '#059669' },
+                                { label: 'Last Price Update', value: ago(stats.prices.lastUpdated),         sub: stats.prices.lastUpdated ? new Date(stats.prices.lastUpdated).toLocaleDateString() : 'Never', color: '#0078d4' },
+                                { label: 'VM Types',          value: stats.vmTypes.total.toLocaleString(),  sub: `Updated ${ago(stats.vmTypes.lastUpdated)}`,              color: '#6366f1' },
+                                { label: 'Currencies Stored', value: stats.currencies?.length || 0,         sub: 'Exchange rates vs USD',                                  color: '#0891b2' },
+                            ].map(m => (
+                                <div key={m.label} style={{ background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', padding: '12px 14px', borderLeft: `3px solid ${m.color}` }}>
+                                    <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{m.label}</div>
+                                    <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>{m.value}</div>
+                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 2 }}>{m.sub}</div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Currency rate chips */}
+                        {stats.currencies?.length > 0 && (
+                            <div>
+                                <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                                    Exchange Rates (USD = 1.0)
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    {stats.currencies.map(c => (
+                                        <div key={c.currency_code} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--bg-tertiary)', borderRadius: 99, padding: '4px 10px', fontSize: '0.78rem' }}>
+                                            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{c.currency_code}</span>
+                                            <span style={{ color: 'var(--text-secondary)' }}>{parseFloat(c.rate_from_usd).toFixed(4)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* ── Run Sync Job ── */}
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', padding: '20px 22px', boxShadow: 'var(--shadow-card)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                    <Play size={15} style={{ color: 'var(--accent)' }} />
+                    <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Run Sync Job</span>
+                    {activeJob?.status === 'running' && (
+                        <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 600 }}>⚡ A job is running — other buttons are disabled</span>
+                    )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(255px, 1fr))', gap: 10 }}>
+                    {ACTIONS.map(a => {
+                        const AIcon = a.icon;
+                        const isRunning    = activeJob?.action === a.key && activeJob?.status === 'running';
+                        const isTriggering = runningKey === a.key;
+                        const busy = isRunning || isTriggering || (!!(activeJob?.status === 'running') && activeJob?.action !== a.key);
+                        return (
+                            <div key={a.key} style={{
+                                background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', padding: '14px 16px',
+                                border: `1px solid ${isRunning ? a.color : 'var(--border-primary)'}`,
+                                boxShadow: isRunning ? `0 0 0 3px ${a.color}22` : 'none',
+                                transition: 'all 0.15s',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                                    <div style={{ width: 34, height: 34, borderRadius: 9, background: `${a.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <AIcon size={16} style={{ color: a.color }} />
+                                    </div>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                                            <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{a.label}</span>
+                                            <span style={{ background: `${a.color}20`, color: a.color, fontSize: '0.63rem', fontWeight: 700, padding: '2px 6px', borderRadius: 99 }}>{a.badge}</span>
+                                        </div>
+                                        <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{a.desc}</div>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => runAction(a.key, a.label)}
+                                    disabled={busy}
+                                    style={{
+                                        width: '100%', padding: '7px 12px',
+                                        background: isRunning ? `${a.color}15` : a.color,
+                                        color: isRunning ? a.color : 'white',
+                                        border: isRunning ? `1px solid ${a.color}` : 'none',
+                                        borderRadius: 'var(--radius-sm)',
+                                        cursor: busy ? 'not-allowed' : 'pointer',
+                                        opacity: busy && !isRunning && !isTriggering ? 0.4 : 1,
+                                        fontWeight: 600, fontSize: '0.82rem',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                        transition: 'all 0.15s',
+                                    }}
+                                >
+                                    {isRunning || isTriggering ? (
+                                        <><RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} /> {isRunning ? 'Running...' : 'Starting...'}</>
+                                    ) : (
+                                        <><Play size={12} /> Run</>
+                                    )}
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* ── Active / Last Job Log ── */}
+            {activeJob && (
+                <div style={{ background: 'var(--bg-card)', border: `1px solid ${JOB_COLOR[activeJob.status] || 'var(--border-primary)'}`, borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-card)' }}>
+                    <div style={{ background: 'var(--bg-secondary)', padding: '11px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-primary)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <Terminal size={14} style={{ color: 'var(--accent)' }} />
+                            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{activeJob.label}</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: `${JOB_COLOR[activeJob.status]}20`, color: JOB_COLOR[activeJob.status], padding: '3px 9px', borderRadius: 99, fontSize: '0.71rem', fontWeight: 700 }}>
+                                {JOB_ICON[activeJob.status]} {activeJob.status}
+                            </span>
+                            {activeJob.finishedAt && (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Duration: {dur(activeJob.startedAt, activeJob.finishedAt)}</span>
+                            )}
+                        </div>
+                        <button onClick={() => setActiveJob(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                            <X size={14} />
+                        </button>
+                    </div>
+                    <div ref={logRef} style={{ background: '#0d1117', color: '#c9d1d9', fontFamily: 'monospace', fontSize: '0.78rem', lineHeight: 1.65, padding: '14px 16px', maxHeight: 320, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                        {!activeJob.logs?.length ? (
+                            <span style={{ color: '#484f58' }}>Waiting for output...</span>
+                        ) : (
+                            activeJob.logs.map((line, i) => (
+                                <div key={i} style={{ color: line.startsWith('[error]') ? '#f85149' : line.startsWith('[done]') ? '#3fb950' : line.startsWith('[start]') || line.startsWith('[info]') ? '#58a6ff' : line.startsWith('[stderr]') ? '#f0883e' : '#c9d1d9' }}>
+                                    {line}
+                                </div>
+                            ))
+                        )}
+                        {activeJob.status === 'running' && <div style={{ color: '#484f58', marginTop: 4 }}>▌</div>}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Recent Jobs History ── */}
+            {recentJobs.length > 0 && (
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: 'var(--shadow-card)' }}>
+                    <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-primary)', fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Activity size={14} style={{ color: 'var(--text-secondary)' }} /> Recent Jobs
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 400 }}>— click a row to view logs</span>
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                        <thead>
+                            <tr style={{ background: 'var(--bg-tertiary)' }}>
+                                {['Action', 'Status', 'Started', 'Duration'].map(h => (
+                                    <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {recentJobs.map(j => (
+                                <tr key={j.id}
+                                    onClick={() => openJob(j.id)}
+                                    style={{ borderTop: '1px solid var(--border-primary)', cursor: 'pointer', transition: 'background 0.1s' }}
+                                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card-hover)'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                >
+                                    <td style={{ padding: '10px 14px', fontWeight: 500, color: 'var(--text-primary)' }}>{j.label}</td>
+                                    <td style={{ padding: '10px 14px' }}>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: `${JOB_COLOR[j.status] || '#6b7280'}20`, color: JOB_COLOR[j.status] || '#6b7280', padding: '2px 8px', borderRadius: 99, fontSize: '0.71rem', fontWeight: 700 }}>
+                                            {JOB_ICON[j.status]} {j.status}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{ago(j.startedAt)}</td>
+                                    <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>
+                                        {dur(j.startedAt, j.finishedAt) || (j.status === 'running' ? <span style={{ color: '#f59e0b' }}>running…</span> : '—')}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+    );
+}
+
 //  Main Admin Page 
 export default function AdminPage() {
     const { user, token } = useAuth();
@@ -680,6 +977,7 @@ export default function AdminPage() {
             {tab === 'dashboard' && <DashboardTab token={token} />}
             {tab === 'users'     && <UsersTab     token={token} />}
             {tab === 'support'   && <SupportTicketsTab token={token} />}
+            {tab === 'sync'      && <SyncTab     token={token} />}
         </div>
     );
 }

@@ -40,14 +40,15 @@ function clearEstimateStorage() {
 function estimateReducer(state, action) {
     switch (action.type) {
         case 'ADD_ITEM': {
-            const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+            const { _presetId, ...payload } = action.payload;
+            const id = _presetId || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
             return {
                 ...state,
                 items: [...state.items, {
-                    ...action.payload,
+                    ...payload,
                     id,
-                    quantity: action.payload.quantity || 1,
-                    hoursPerMonth: action.payload.hoursPerMonth || 730,
+                    quantity: payload.quantity || 1,
+                    hoursPerMonth: payload.hoursPerMonth || 730,
                 }],
             };
         }

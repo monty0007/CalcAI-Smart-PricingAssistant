@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Node modules (rebuilt inside Docker)
+**/node_modules
+
+# Frontend dev / build artifacts (rebuilt in stage 1)
+frontend/dist
+frontend/.env.local
+frontend/.env.development
+frontend/build_output.txt
+frontend/lint_output*.txt
+
+# Backend local env & logs
+backend/.env*
+backend/appservice-logs-*
+backend/appservice-logs-latest
+
+# Frontend app service logs
+frontend/frontend-appservice-logs
+frontend/frontend8939-*
+
+# Misc
+**/.DS_Store
+**/*.log
+README.md
+ai_architecture.md
+Dockerfile
+.dockerignore
+ 
