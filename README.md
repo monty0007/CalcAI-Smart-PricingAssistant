@@ -8,6 +8,9 @@
 [![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)](https://vite.dev)
 [![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)](https://expressjs.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://docker.com)
+[![Stripe](https://img.shields.io/badge/Stripe-Payments-635BFF?logo=stripe&logoColor=white)](https://stripe.com)
+[![Razorpay](https://img.shields.io/badge/Razorpay-Payments-0C2451?logo=razorpay&logoColor=white)](https://razorpay.com)
 
 </div>
 
@@ -15,49 +18,66 @@
 
 ## 🎯 What Have We Built So Far?
 
-CalcAI has evolved from a simple pricing fetcher into a comprehensive, AI-powered cloud cost management tool. Here is exactly where the project stands today and everything that has been implemented.
+CalcAI has evolved from a simple pricing fetcher into a comprehensive, AI-powered cloud cost management platform with dual payment providers, an admin dashboard, a support ticket system, automated nightly data sync, and a multi-stage Docker deployment. Here is exactly where the project stands today.
 
 ### ✨ Key Features Implemented
 
 | Category | Features Included |
 |----------|-------------------|
-| **Cloud Estimator** | Browse 100+ Azure services with real-time pricing. Build line-by-line cost breakdowns (Compute + OS + Disks + Bandwidth) and export them to `.xlsx` (Excel). |
-| **VM Comparison** | Dedicated tools to visually compare Virtual Machine pricing across multiple Azure regions side-by-side, sorting by cheapest Linux or Windows run rates. |
-| **Smart AI Assistant** | A conversational assistant powered by LLMs (OpenAI). Ask it complex architectural questions (e.g. *"1 D8s v5 Windows server with 5GB data transfer in Central India"*).* |
-| **AI Tool Execution** | The AI doesn't just chat; it natively integrates with the backend database. It can autonomously trigger the `calculate_estimate` backend tool to pull live USD pricing and return exact cost totals directly into the chat. |
-| **Persistent AI Memory** | (New!) The AI retains a context window consisting of the latest 50 messages. Chat histories are securely saved in the database for logged-in users or in `localStorage` for guests. Sessions are auto-titled using a secondary prompt call. |
-| **User Authentication** | Full backend and frontend integration for Email/Password, Google OAuth, and Microsoft Account logins. |
-| **Secure Saved Estimates** | Authenticated users can save their customized cloud estimates seamlessly to the cloud database and revisit/edit them anytime from their dashboard. |
-| **Automated Data Sync** | Background sync scripts built in Python and Node.js that pull millions of pricing rows from the Azure Retail Rates API into the database with deduplication logic. |
+| **Cloud Estimator** | Browse 100+ Azure services with real-time pricing. Build line-by-line cost breakdowns (Compute + OS + Disks + Bandwidth) and export to `.xlsx` (Excel). |
+| **VM Comparison** | Dedicated page to compare Virtual Machine pricing across Azure regions side-by-side with Linux/Windows toggles and multi-currency support. |
+| **Smart AI Assistant** | Conversational assistant powered by OpenAI. Ask complex architectural questions (e.g. *"1 D8s v5 Windows server with 5 GB data transfer in Central India"*). Supports VMs, App Service, Storage, SQL Database, Cosmos DB, Functions, Bandwidth, Defender, and more via a type-routed `calculate_estimate` tool with zone-aware bandwidth pricing. |
+| **AI Tool Execution** | The AI calls the `calculate_estimate` backend tool to pull live pricing from PostgreSQL and return exact cost totals — no hallucinated prices. |
+| **Persistent AI Chat** | 50-message context window per session. Chat histories saved in the database for logged-in users with auto-generated session titles. |
+| **User Authentication** | Firebase Auth with Email/Password, Google OAuth, and Microsoft Account login flows integrated end-to-end. |
+| **Saved Estimates** | Authenticated users save, load, and edit cloud estimates from their personal dashboard. Guests get `localStorage` fallback. |
+| **Subscription Tiers** | Three-tier model (Free / Plus / Pro) with usage-tracked limits on AI calls and saved estimates, enforced server-side via `tierLimit` middleware. |
+| **Dual Payment Providers** | **Stripe** (checkout + customer portal + webhooks) for international users, **Razorpay** (order + HMAC verification) for INR payments. Both auto-activate the subscription on verification. |
+| **Admin Dashboard** | Protected `/admin` page for platform operators: user management (search, tier override, delete), aggregate platform stats (users, AI calls, estimates, tickets), support ticket triage, and data-sync controls with real-time job logs. |
+| **Support Ticket System** | Guests and authenticated users can submit tickets (`/support`). Automated email confirmations via Nodemailer. Admins review and reply from the admin panel. |
+| **Automated Nightly Sync** | Two-step cron job (Midnight IST): updates currency exchange rates, then incrementally syncs Azure retail prices via Python scripts — fully automated on the deployed instance. |
+| **Server-Side Caching** | In-process 15-minute TTL cache (bounded to 200 entries) + cache warm-up on startup for popular services and VM comparison queries. |
+| **Multi-Currency** | 17 currencies supported (USD, INR, EUR, GBP, AUD, CAD, JPY, BRL, KRW, SGD, DKK, NZD, NOK, RUB, SEK, CHF, TWD) with live exchange rates synced nightly. |
+| **Docker Deployment** | Multi-stage `Dockerfile`: builds the Vite frontend, then packages it into the Express backend container so a single image serves both UI and API. Python included for admin sync scripts. |
+| **CI/CD** | GitHub Actions workflow auto-deploys the backend to Azure App Service on push to `main` (backend path filter). |
+| **Light/Dark Theme** | User-selectable theme toggle persisted in `localStorage`. |
 
 ---
 
-## 🏗️ Technical Architecture Updates
+## 🏗️ Technical Architecture
 
-We recently executed a large-scale database migration to improve query stability and aggregation speeds.
+### Database
+The backend runs on **PostgreSQL** with high-performance B-Tree and expression indexes (`LOWER(sku_name)`) bringing VM search to sub-10ms response times. All application data — users, estimates, AI chat histories, support tickets, usage tracking, pricing rows, currency rates, and VM type specs — lives under one RDBMS.
 
-### Database Migration
-The backend originally utilized SQLite via Turso. We have successfully migrated the entire backend and schema to a robust **PostgreSQL** database. 
-- **High-Performance Indexes**: Added extensive B-Tree and filtered expression indexes (`LOWER(sku_name)`) to reduce /api/vms search queries down to sub-10ms response times.
-- **Relational Integrity**: Unified user accounts, saved estimates, synchronized pricing instances, and AI Chat histories under one reliable RDBMS structure.
+### API Routes
+
+| Route | Purpose |
+|-------|---------|
+| `/api/auth` | Firebase token verification, user registration/login, JWT issuance |
+| `/api/prices` | Query cached pricing with service, region, currency, type filters |
+| `/api/prices/search` | Full-text search across product names, SKUs, meters |
+| `/api/vm-list` | Paginated VM list with hardware specs + live prices + currency conversion |
+| `/api/vm-compare` | Regional price comparison for up to 2 SKUs |
+| `/api/best-vm-prices` | Cheapest price per SKU across all regions |
+| `/api/tools/calculate_estimate` | AI tool endpoint — computes costs for VMs, Storage, SQL, App Service, etc. |
+| `/api/chats` | CRUD for AI chat sessions and messages |
+| `/api/estimates` | Save, load, update, delete user estimates |
+| `/api/subscriptions` | Stripe checkout/portal/webhooks + Razorpay order/verify |
+| `/api/admin` | User management, stats, support tickets, sync job runner |
+| `/api/support` | Submit & track support tickets |
+| `/api/health` | Server health + last sync info |
+| `/api/sync` | Manual full / quick sync triggers |
 
 ### Project Layout
 ```text
 CalcAI/
 ├── .github/
 │   └── workflows/
-│       └── main_azure-pricing-backend.yml
-├── .vscode/
-│   └── settings.json
+│       └── main_azure-pricing-calc.yml
+├── Dockerfile
 ├── ai_architecture.md
 ├── README.md
 ├── backend/
-│   ├── .deployignore
-│   ├── .deployment
-│   ├── .env
-│   ├── .env.example
-│   ├── .gitignore
-│   ├── package-lock.json
 │   ├── package.json
 │   ├── requirements.txt
 │   ├── data/
@@ -75,52 +95,32 @@ CalcAI/
 │   │   ├── restore_vms.py
 │   │   ├── update_currency_rates.py
 │   │   ├── update_prices.py
-│   │   ├── update_vm_types.py
-│   │   └── data/
+│   │   └── update_vm_types.py
 │   └── src/
-│       ├── admin.js
-│       ├── aiTools.js
-│       ├── auth.js
-│       ├── chats.js
-│       ├── cron.js
-│       ├── db.js
-│       ├── debug_internal.js
-│       ├── debug_robust.js
-│       ├── estimates.js
-│       ├── index.js
-│       ├── scheduler.js
-│       ├── subscriptions.js
-│       ├── support.js
-│       ├── sync.js
-│       ├── test_import.js
+│       ├── index.js           # Express app, routes, caching, startup
+│       ├── db.js              # PostgreSQL pool, schema init, query helpers
+│       ├── aiTools.js         # calculate_estimate tool (type-routed)
+│       ├── auth.js            # Firebase Admin + JWT auth
+│       ├── chats.js           # AI chat session CRUD
+│       ├── cron.js            # Node-cron wrapper (start/stop)
+│       ├── scheduler.js       # Nightly Python sync orchestrator
+│       ├── estimates.js       # Saved estimates CRUD
+│       ├── subscriptions.js   # Stripe + Razorpay payments
+│       ├── admin.js           # Admin routes + sync job runner
+│       ├── support.js         # Support ticket routes + email
+│       ├── sync.js            # JS-based Azure price sync
 │       └── middleware/
-│           └── tierLimit.js
+│           └── tierLimit.js   # Per-tier usage enforcement
 └── frontend/
-    ├── .env
-    ├── .env.example
-    ├── .gitignore
-    ├── build_output.txt
-    ├── eslint.config.js
-    ├── index.html
-    ├── lint_output.txt
-    ├── lint_output_utf8.txt
-    ├── package-lock.json
     ├── package.json
     ├── vercel.json
     ├── vite.config.js
-    ├── dist/
-    │   ├── index.html
-    │   ├── vite.svg
-    │   └── assets/
-    ├── public/
-    │   └── vite.svg
+    ├── index.html
     └── src/
         ├── App.jsx
         ├── firebase.js
         ├── index.css
         ├── main.jsx
-        ├── assets/
-        │   └── react.svg
         ├── components/
         │   ├── EstimatePanel.jsx
         │   ├── Logo.jsx
@@ -157,6 +157,7 @@ CalcAI/
 
 - [Node.js](https://nodejs.org/) (v22+)
 - Local or Cloud **PostgreSQL** Database
+- Python 3 (for admin sync scripts)
 
 ### 1️⃣ Configure Backend
 
@@ -172,6 +173,7 @@ PORT=3001
 JWT_SECRET=your_super_secret_string
 NODE_ENV=development
 ALLOWED_ORIGIN=http://localhost:5173
+FRONTEND_URL=http://localhost:5173
 
 # Firebase Admin (get from Firebase Console → Project Settings → Service Accounts)
 FIREBASE_PROJECT_ID=your-project-id
@@ -182,11 +184,21 @@ FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY----
 RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxxxxxx
 RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
 
-# Email (Nodemailer — for support/contact emails)
+# Stripe (use test keys for dev)
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PLUS_PRICE_ID=price_...
+STRIPE_PRO_PRICE_ID=price_...
+
+# Email (Nodemailer — for support ticket confirmations)
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_USER=you@gmail.com
+EMAIL_PASS=your_app_password
 EMAIL_FROM=you@gmail.com
+
+# Admin bootstrap (one-time use)
+BOOTSTRAP_SECRET=a_random_secret_to_grant_admin
 ```
 
 ```bash
@@ -226,110 +238,105 @@ npm run dev
 
 Open **http://localhost:5173** 🎉
 
+### 3️⃣ Docker (Single Container)
+
+The multi-stage `Dockerfile` builds the frontend and bundles it into the backend, serving both from one container:
+
+```bash
+docker build -t calcai .
+docker run -p 8080:8080 --env-file backend/.env calcai
+```
+
+Open **http://localhost:8080**
+
 ---
 
 ## ☁️ Deployment
 
-The frontend is hosted on **Vercel** and the backend is hosted on **Azure App Service**.
+### Option A: Split Deployment (Vercel + Azure App Service)
 
-### Frontend → Vercel
+**Frontend → Vercel**
 
-The `frontend/vercel.json` is already configured with SPA rewrites so direct URL navigation works correctly.
+The `frontend/vercel.json` is configured with SPA rewrites.
 
 1. Push the `frontend/` folder to a GitHub repo (or connect the monorepo).
-2. Import the project in [vercel.com](https://vercel.com) — set **Root Directory** to `frontend`.
-3. Add all `VITE_*` environment variables in **Vercel → Project → Settings → Environment Variables**:
+2. Import in [vercel.com](https://vercel.com) — set **Root Directory** to `frontend`.
+3. Add all `VITE_*` environment variables in **Vercel → Settings → Environment Variables**.
+4. Deploy — Vercel auto-builds via `npm run build`.
 
-| Variable | Description |
-|---|---|
-| `VITE_API_URL` | Your Azure App Service URL, e.g. `https://calcai-backend.azurewebsites.net/api` |
-| `VITE_FIREBASE_API_KEY` | Firebase client API key |
-| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase auth domain |
-| `VITE_FIREBASE_PROJECT_ID` | Firebase project ID |
-| `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage bucket |
-| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID |
-| `VITE_FIREBASE_APP_ID` | Firebase app ID |
-| `VITE_OPENAI_ENDPOINT` | OpenAI completions endpoint |
-| `VITE_OPENAI_API_KEY` | OpenAI API key |
-| `VITE_OPENAI_MODEL` | Model name, e.g. `gpt-4o-mini` |
+**Backend → Azure App Service**
 
-4. Deploy — Vercel auto-builds via `npm run build` and serves the `dist/` folder.
+CI/CD is handled by the GitHub Actions workflow (`.github/workflows/main_azure-pricing-calc.yml`). Pushes to `main` that touch `backend/**` trigger an automatic build & deploy.
 
----
+Azure uses `npm start` → `node src/index.js`.
 
-### Backend → Azure App Service
+### Option B: Docker (Single Container)
 
-The `backend/.deployment` is already configured with `SCM_DO_BUILD_DURING_DEPLOYMENT = true` so Azure will run `npm install` automatically on deploy.
+Build the `Dockerfile` and deploy to any container host (Azure Container Apps, App Service for Containers, etc.). The image serves both the API and the built frontend on port 8080.
 
-Azure uses `npm start` to launch the server, which maps to `node src/index.js`.
-
-#### Pre-Push Checklist
-
-Before deploying to Azure App Service, verify every item below:
-
-**Runtime & Build**
-- [ ] Azure App Service is set to **Node.js 22 LTS** (matches `"engines": { "node": ">=22.0.0" }` in `package.json`)
-- [ ] `npm start` runs cleanly locally with `NODE_ENV=production` — no errors
-- [ ] No hardcoded `localhost` URLs anywhere in `backend/src/`
-
-**Environment Variables** — set in **Azure → App Service → Configuration → Application Settings**
+### Environment Variables — Production
 
 | Variable | Value |
 |---|---|
 | `NODE_ENV` | `production` |
 | `PORT` | Leave unset — Azure injects this automatically |
 | `DATABASE_URL` | Production PostgreSQL connection string |
-| `JWT_SECRET` | A long, random secret string (not the dev value) |
-| `ALLOWED_ORIGIN` | Your Vercel domain, e.g. `https://calcai.vercel.app` |
+| `JWT_SECRET` | A long, random secret string |
+| `ALLOWED_ORIGIN` | Your frontend domain, e.g. `https://calcai.vercel.app` |
 | `FRONTEND_URL` | Same as `ALLOWED_ORIGIN` (used in email links) |
 | `FIREBASE_PROJECT_ID` | Firebase project ID |
 | `FIREBASE_CLIENT_EMAIL` | Firebase Admin service account email |
 | `FIREBASE_PRIVATE_KEY` | Full private key — keep the `\n` newlines, wrap in quotes |
-| `RAZORPAY_KEY_ID` | **Live** key (`rzp_live_...`) for production |
+| `RAZORPAY_KEY_ID` | **Live** key (`rzp_live_...`) |
 | `RAZORPAY_KEY_SECRET` | Live Razorpay secret |
+| `STRIPE_SECRET_KEY` | Stripe secret key |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `STRIPE_PLUS_PRICE_ID` | Stripe price ID for Plus plan |
+| `STRIPE_PRO_PRICE_ID` | Stripe price ID for Pro plan |
 | `EMAIL_HOST` | SMTP host |
 | `EMAIL_PORT` | SMTP port (e.g. `587`) |
 | `EMAIL_USER` | SMTP login email |
+| `EMAIL_PASS` | SMTP password / app password |
 | `EMAIL_FROM` | Sender display email |
-| `SYNC_CRON` | Cron schedule for price sync, e.g. `0 0 * * *` |
-| `STRIPE_SECRET_KEY` | Stripe secret (if Stripe is active) |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret (if active) |
-| `STRIPE_PLUS_PRICE_ID` | Stripe price ID for Plus plan (if active) |
-| `STRIPE_PRO_PRICE_ID` | Stripe price ID for Pro plan (if active) |
+| `PYTHON_CMD` | Path to Python 3 binary (Docker default: `python3`) |
+| `BOOTSTRAP_SECRET` | One-time secret for `/api/bootstrap/make-admin` |
 
-**Database**
-- [ ] Production PostgreSQL is accessible from Azure (firewall rules / connection string confirmed)
-- [ ] Database schema is initialized — `initDB()` runs on startup automatically
+### Pre-Deploy Checklist
 
-**CORS**
-- [ ] `ALLOWED_ORIGIN` exactly matches the Vercel deployment URL (no trailing slash)
-- [ ] If using a custom domain on Vercel, add that too (comma-separated values are supported)
-
-**Firebase**
-- [ ] The Vercel domain is added to **Firebase Console → Authentication → Authorized Domains**
-- [ ] `FIREBASE_PRIVATE_KEY` newlines are preserved — Azure can mangle them; test with a startup log
-
-**Final smoke test after deploy**
-- [ ] `GET https://<your-app>.azurewebsites.net/api/health` returns `200`
-- [ ] Login flow works end-to-end from the Vercel frontend
-- [ ] A test estimate saves and loads correctly
+- [ ] Azure App Service set to **Node.js 22 LTS**
+- [ ] `npm start` runs cleanly with `NODE_ENV=production`
+- [ ] No hardcoded `localhost` URLs in backend source
+- [ ] Production PostgreSQL is accessible (firewall rules confirmed)
+- [ ] `ALLOWED_ORIGIN` matches frontend URL exactly (no trailing slash)
+- [ ] Frontend domain added to **Firebase Console → Authentication → Authorized Domains**
+- [ ] `FIREBASE_PRIVATE_KEY` newlines are preserved
+- [ ] `GET /api/health` returns `200` after deploy
+- [ ] Login, estimate save/load, and AI chat work end-to-end
 
 ---
 
 ## 📝 Current Status & Next Steps
 
-The application is production-ready as a full end-to-end pricing and estimation platform.
+The application is production-ready as a full-stack pricing, estimation, and AI advisory platform.
 
-**Where we are right now:**
-- Authentication works securely with Firebase; estimate data is persisted per-user in PostgreSQL, with `localStorage` fallback for guests.
-- The PostgreSQL database handles Azure queries at scale with B-Tree and expression indexes bringing VM search to sub-10ms response times.
-- The AI responds accurately to complex architectural estimates, using enforced tool-calling to pull live database prices and eliminate hallucinations.
-- AI Chat sessions auto-title themselves, retain a 50-message context window, and deletion is handled with full event safety.
-- Subscription tiers (Free / Plus ₹199 / Pro ₹499) are fully integrated with Razorpay payments.
-- Project structure is clean — all test/debug scripts live in `backend/scripts/testing/` and are removed when done.
-- Frontend deploys to Vercel; backend deploys to Azure App Service with `npm start`.
+**Where we are now:**
+- Firebase authentication + JWT auth with Email, Google, and Microsoft logins.
+- PostgreSQL with expression indexes — sub-10ms VM search response times.
+- AI assistant with enforced tool-calling against live database prices — no hallucinations.
+- AI chat sessions with 50-message context, auto-titling, and persistent history.
+- Subscription tiers (Free / Plus ₹249 / Pro ₹499) with **Stripe** (international) and **Razorpay** (INR) payment providers.
+- Usage-tracked tier limits: Free = 50 AI calls/day + 3 estimates, Plus = 300/month + 20, Pro = unlimited.
+- Admin dashboard with user management, platform stats, support ticket triage, and sync job runner with live logs.
+- Support ticket system with email confirmations.
+- Automated nightly sync (Midnight IST) for currency rates and Azure retail prices.
+- Server-side caching with cache warm-up on startup.
+- 17 currencies with live exchange rates.
+- Multi-stage Docker build for single-container deployment.
+- GitHub Actions CI/CD to Azure App Service.
+- Light/dark theme.
 
 **Future additions could include:**
-- Connecting live user subscriptions to view exact EA (Enterprise Agreement) contracted rates rather than retail limits.
-- Nightly automated price sync via Azure App Service scheduled tasks instead of manual triggers.
-- Enhanced Excel exports with generated architectural cost-breakdown graphs.
+- Enterprise Agreement (EA) contracted rate imports for organization-level pricing.
+- Enhanced Excel exports with architectural cost-breakdown charts.
+- Webhook-driven Razorpay subscription renewals (currently 30-day one-time activation).
+- Cost anomaly alerts and budget tracking per estimate.

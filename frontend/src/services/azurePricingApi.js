@@ -39,11 +39,15 @@ function lsSet(key, data) {
   } catch { /* quota exceeded — ignore */ }
 }
 
+function isEmptyResult(data) {
+  return data && Array.isArray(data.items) && data.items.length === 0;
+}
+
 function cacheGet(key) {
   const mem = memCache.get(key);
-  if (mem && Date.now() - mem.t < CACHE_TTL) return mem.d;
+  if (mem && Date.now() - mem.t < CACHE_TTL && !isEmptyResult(mem.d)) return mem.d;
   const ls = lsGet(key);
-  if (ls) { memCache.set(key, { t: Date.now(), d: ls }); return ls; }
+  if (ls && !isEmptyResult(ls)) { memCache.set(key, { t: Date.now(), d: ls }); return ls; }
   return null;
 }
 
@@ -83,7 +87,10 @@ export async function fetchPrices(filters = {}, currencyCode = 'USD', maxItems =
     currency: currencyCode,
   };
 
-  cacheSet(cacheKey, result);
+  // Don't cache empty results to avoid stale empty responses
+  if (result.items.length > 0) {
+    cacheSet(cacheKey, result);
+  }
   return result;
 }
 
@@ -124,7 +131,7 @@ async function fetchFromAzure(filters, currencyCode, maxItems) {
   const allItems = [];
   let nextUrl = url;
   let pages = 0;
-  const maxPages = Math.ceil(maxItems / 100);
+  const maxPages = maxItems === 'all' ? 500 : Math.ceil(maxItems / 100);
 
   while (nextUrl && pages < maxPages) {
     let fetchUrl = nextUrl;
@@ -259,17 +266,11 @@ export function formatPrice(price, currencyCode = 'USD') {
  * Fetch paginated VM list with Linux/Windows prices and best region
  */
 export async function fetchVmList({
-  currency = 'USD', region = 'eastus', search = '', limit = 100, offset = 0,
-  minVcpu, maxVcpu, minMemory, maxMemory
+  currency = 'USD', region = 'eastus', search = ''
 } = {}) {
-  const paramsObj = { currency, region, limit, offset };
-  if (search) paramsObj.search = search;
-  if (minVcpu) paramsObj.minVcpu = minVcpu;
-  if (maxVcpu) paramsObj.maxVcpu = maxVcpu;
-  if (minMemory) paramsObj.minMemory = minMemory;
-  if (maxMemory) paramsObj.maxMemory = maxMemory;
+  const params = new URLSearchParams({ currency, region });
+  if (search) params.set('search', search);
 
-  const params = new URLSearchParams(paramsObj);
   const response = await fetch(`${BASE_URL}/vm-list?${params.toString()}`);
   if (!response.ok) throw new Error(`VM list error: ${response.status}`);
   return response.json();

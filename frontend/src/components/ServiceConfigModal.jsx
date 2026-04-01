@@ -649,17 +649,9 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                             ) : filteredPricing.length === 0 ? (
                                 <div className="empty-state" style={{ padding: 20 }}>
                                     <p>No pricing found.</p>
-                                    {currency !== 'USD' && (
-                                        <p style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                                            The local database currently only contains <strong>USD</strong> pricing.
-                                            <br />Please switch the currency to USD.
-                                        </p>
-                                    )}
-                                    {currency === 'USD' && (
-                                        <p style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                                            Try adjusting your filters or search terms.
-                                        </p>
-                                    )}
+                                    <p style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                                        Try adjusting your filters, search terms, or selected region.
+                                    </p>
                                 </div>
                             ) : (
                                 <div className="pricing-list">

@@ -318,9 +318,21 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ── Cache warm-up ───────────────────────────────
+// Pre-warm the server-side cache for the most commonly used queries
+// so the very first user request is fast instead of hitting a cold DB.
 async function warmUpCaches() {
     console.log('🔥 Warming up caches...');
     const t = Date.now();
+
+    // Popular services that users are most likely to click first
+    const popularServices = [
+        'Virtual Machines', 'Azure App Service', 'Storage',
+        'Azure SQL Database', 'Azure Cosmos DB', 'Azure Functions',
+    ];
+    const defaultRegion = 'centralindia';
+    const defaultCurrency = 'USD';
+
+    // 1. Warm up best-VM-prices (for VM comparison page)
     const currencies = ['USD', 'INR'];
     await Promise.all(currencies.map(async (currency) => {
         try {
@@ -328,6 +340,23 @@ async function warmUpCaches() {
             serverCacheSet(`best-vm-prices:${currency}`, { count: prices.length, currency, items: prices });
         } catch (e) { /* non-fatal */ }
     }));
+
+    // 2. Warm up /api/prices for popular services (the modal query)
+    for (const svc of popularServices) {
+        try {
+            const cacheKey = `prices:${svc}:${defaultRegion}:${defaultCurrency}:undefined:undefined:undefined:undefined:all`;
+            if (!serverCacheGet(cacheKey)) {
+                const items = await queryPrices({
+                    serviceName: svc,
+                    armRegionName: defaultRegion,
+                    currencyCode: defaultCurrency,
+                    limit: 'all',
+                });
+                serverCacheSet(cacheKey, { Items: items, Count: items.length, currency: defaultCurrency });
+            }
+        } catch (e) { /* non-fatal */ }
+    }
+
     console.log(`✅ Cache warm-up done in ${Date.now() - t}ms`);
 }
 
@@ -365,7 +394,7 @@ async function start() {
     // runQuickSync().catch(err => console.error('Startup sync error:', err));
 
     // Start server
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
         console.log(`🌐 Server running on http://localhost:${PORT}`);
         console.log(`   GET  /api/prices?serviceName=...&region=...&currency=...`);
         console.log(`   GET  /api/prices/search?q=...`);
@@ -373,6 +402,13 @@ async function start() {
         console.log(`   POST /api/sync/quick    (quick sync)`);
         console.log(`   GET  /api/health`);
         console.log('─'.repeat(40));
+    });
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.error(`❌ Port ${PORT} is already in use. Stop the other process or use a different PORT.`);
+            process.exit(1);
+        }
+        throw err;
     });
 }
 /**
@@ -420,15 +456,11 @@ app.get('/api/vm-list', async (req, res) => {
         const {
             currency = 'USD',
             region = 'eastus',
-            limit = 100,
-            offset = 0,
             search = '',
-            minVcpu, maxVcpu,
-            minMemory, maxMemory
         } = req.query;
 
-        // Check server-side cache first
-        const cacheKey = `vm-list:${region}:${currency}:${search}:${limit}:${offset}:${minVcpu}:${maxVcpu}:${minMemory}:${maxMemory}`;
+        // Server-side cache — one key per region+currency+search combo
+        const cacheKey = `vm-list:${region}:${currency}:${search}`;
         const cached = serverCacheGet(cacheKey);
         if (cached) {
             res.set('X-Cache', 'HIT');
@@ -438,12 +470,9 @@ app.get('/api/vm-list', async (req, res) => {
 
         console.log(`[API] /vm-list requested - search: "${search}", region: ${region}`);
 
-        const safeLimit = Math.max(1, parseInt(limit) || 100);
-        const safeOffset = Math.max(0, parseInt(offset) || 0);
-
         const { query } = await import('./db.js');
 
-        // ── In-memory currency cache (5-min TTL) ─────────────────────
+        // Currency rate (in-memory 5-min cache)
         const CURRENCY_CACHE = app._currencyCache || (app._currencyCache = new Map());
         const cacheKeyC = currency.toUpperCase();
         const cachedC = CURRENCY_CACHE.get(cacheKeyC);
@@ -483,86 +512,42 @@ app.get('/api/vm-list', async (req, res) => {
             paramIdx++;
         }
 
-        // Shared WHERE clause args for count query (no region param)
-        const countArgs = args.slice(1); // drop $1 (region)
-        const countParamOffset = paramIdx - 2; // number of extra args added for search
-        const countSearchClause = searchClause
-            ? searchClause.replace(/\$\d+/, `$${countParamOffset > 0 ? countParamOffset : 1}`)
-            : '';
-
-        const countSql = `
-            SELECT COUNT(DISTINCT sku_name) AS total
+        // Single query — fetch all unique SKU prices for the region in one shot.
+        // The partial index idx_prices_vmlist_hot covers this exactly.
+        const sql = `
+            SELECT
+                CONCAT('Standard_', REPLACE(TRIM(sku_name), ' ', '_')) AS sku_key,
+                MIN(CASE WHEN LOWER(product_name) NOT LIKE '%windows%'
+                         THEN retail_price END) AS linux_usd,
+                MIN(CASE WHEN LOWER(product_name) LIKE '%windows%'
+                         THEN retail_price END) AS windows_usd
             FROM azure_prices
-            WHERE currency_code = 'USD'
+            WHERE arm_region_name = $1
+              AND currency_code = 'USD'
               AND is_active = TRUE
               AND service_name = 'Virtual Machines'
               AND type = 'Consumption'
               AND LOWER(sku_name) NOT LIKE '%spot%'
               AND LOWER(sku_name) NOT LIKE '%low priority%'
-              ${countSearchClause}
+              ${searchClause}
+            GROUP BY sku_name
+            ORDER BY sku_name ASC
         `;
 
-        // LIMIT / OFFSET pushed to DB — no more JS-level slicing
-        const limitParamIdx = paramIdx;
-        const offsetParamIdx = paramIdx + 1;
-        args.push(safeLimit, safeOffset);
-
-        const sql = `
-            WITH all_skus AS (
-                SELECT DISTINCT sku_name
-                FROM azure_prices
-                WHERE
-                    currency_code = 'USD'
-                    AND is_active = TRUE
-                    AND service_name = 'Virtual Machines'
-                    AND type = 'Consumption'
-                    AND LOWER(sku_name) NOT LIKE '%spot%'
-                    AND LOWER(sku_name) NOT LIKE '%low priority%'
-                    ${searchClause}
-            )
-            SELECT
-                CONCAT('Standard_', REPLACE(TRIM(a.sku_name), ' ', '_')) AS sku_key,
-                a.sku_name                                                AS raw_sku,
-                MIN(CASE WHEN LOWER(p.product_name) NOT LIKE '%windows%'
-                         THEN p.retail_price END)                         AS linux_usd,
-                MIN(CASE WHEN LOWER(p.product_name) LIKE '%windows%'
-                         THEN p.retail_price END)                         AS windows_usd
-            FROM all_skus a
-            LEFT JOIN azure_prices p
-                ON p.sku_name = a.sku_name
-                AND p.arm_region_name = $1
-                AND p.currency_code = 'USD'
-                AND p.is_active = TRUE
-                AND p.service_name = 'Virtual Machines'
-                AND p.type = 'Consumption'
-            GROUP BY a.sku_name
-            ORDER BY a.sku_name ASC
-            LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}
-        `;
-
-        // Run main query and count in parallel
-        const [result, countResult] = await Promise.all([
-            query(sql, args),
-            query(countSql, countArgs),
-        ]);
-
-        const totalCount = parseInt(countResult.rows[0]?.total || 0);
+        const result = await query(sql, args);
 
         const items = result.rows.map(row => {
             const skuName = row.sku_key;
             const linuxPrice = row.linux_usd != null ? +(row.linux_usd * rate).toFixed(6) : null;
             const windowsPrice = row.windows_usd != null ? +(row.windows_usd * rate).toFixed(6) : null;
-            return { skuName, region, currency: currency.toUpperCase(), linuxPrice, windowsPrice, specs: null };
+            return { skuName, region, currency: currency.toUpperCase(), linuxPrice, windowsPrice };
         });
 
         const response = {
             region,
             currency: currency.toUpperCase(),
             exchangeRate: rate,
-            totalCount,
-            hasMore: safeOffset + items.length < totalCount,
-            limit: safeLimit,
-            offset: safeOffset,
+            totalCount: items.length,
             items,
         };
 

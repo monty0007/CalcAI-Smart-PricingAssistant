@@ -15,9 +15,17 @@ const dbConfig = parseDbUrl(process.env.DATABASE_URL || '');
 const pool = new Pool({
     ...dbConfig,
     ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 15000,
+    connectionTimeoutMillis: 10000,
     idleTimeoutMillis: 30000,
+    max: 10,
+    statement_timeout: 30000,
 });
+
+// Keep the pool warm — prevent Azure from killing idle connections.
+// A lightweight SELECT 1 every 4 minutes keeps them alive.
+setInterval(() => {
+    pool.query('SELECT 1').catch(() => {});
+}, 4 * 60 * 1000);
 
 /**
  * Execute a query with the pool
@@ -343,7 +351,11 @@ export async function queryPrices({
             p.type,
             p.reservation_term,
             p.is_active,
-            p.raw_data
+            p.raw_data->>'meterName' AS meter_name,
+            p.raw_data->>'unitOfMeasure' AS unit_of_measure,
+            p.raw_data->>'armSkuName' AS arm_sku_name,
+            (p.raw_data->>'cores')::int AS cores,
+            (p.raw_data->>'ram')::numeric AS ram
         FROM azure_prices p
         ${where} 
         ORDER BY p.retail_price ASC
@@ -355,7 +367,7 @@ export async function queryPrices({
     }
 
     const result = await query(sql, args);
-    return result.rows.map(row => rowToItem(row, rate, currencyCode));
+    return result.rows.map(row => rowToItemLean(row, rate, currencyCode));
 }
 
 /**
@@ -432,6 +444,35 @@ function rowToItem(row, rate = 1.0, requestedCurrency = 'USD') {
         productName: row.product_name,
         skuName: row.sku_name,
         armRegionName: row.arm_region_name
+    };
+}
+
+/**
+ * Lean row mapper for queryPrices — avoids spreading the entire raw_data JSONB.
+ * Only includes the fields the frontend modal actually needs, keeping the response small.
+ */
+function rowToItemLean(row, rate = 1.0, requestedCurrency = 'USD') {
+    return {
+        meterId: row.meter_id,
+        skuId: row.sku_id,
+        serviceName: row.service_name,
+        serviceId: row.service_id,
+        serviceFamily: row.service_family,
+        productName: row.product_name,
+        skuName: row.sku_name,
+        armRegionName: row.arm_region_name,
+        location: row.location,
+        retailPrice: row.retail_price * rate,
+        unitPrice: row.unit_price * rate,
+        currencyCode: requestedCurrency,
+        effectiveStartDate: row.effective_start_date,
+        type: row.type,
+        reservationTerm: row.reservation_term,
+        meterName: row.meter_name || null,
+        unitOfMeasure: row.unit_of_measure || null,
+        armSkuName: row.arm_sku_name || null,
+        cores: row.cores || null,
+        ram: row.ram || null,
     };
 }
 

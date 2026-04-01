@@ -2960,7 +2960,7 @@ body {
 }
 
 .vm-config-modal .pricing-item-price {
-  font-size: 14px;
+  font-size: 15.5px;
   font-weight: 700;
   color: var(--scm-accent);
   font-family: 'DM Mono', monospace;
@@ -2968,7 +2968,7 @@ body {
 }
 
 .vm-config-modal .pricing-item-unit {
-  font-size: 10.5px;
+  font-size: 11.5px;
   color: var(--scm-text-subtle);
   margin-top: 1px;
 }
@@ -3180,7 +3180,7 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 7px 0;
-  font-size: 13.5px;
+  font-size: 14.5px;
   color: var(--scm-text-muted);
   border-bottom: 1px solid var(--scm-border);
 }
@@ -3191,7 +3191,7 @@ body {
 
 .vm-config-modal .cost-line span:last-child {
   font-family: 'DM Mono', 'Roboto Mono', monospace;
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--scm-text);
   font-variant-numeric: tabular-nums;
@@ -3208,7 +3208,7 @@ body {
 }
 
 .vm-config-modal .cost-line.cost-total span:first-child {
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--scm-text-muted);
   text-transform: uppercase;
@@ -3217,7 +3217,7 @@ body {
 }
 
 .vm-config-modal .cost-amount {
-  font-size: 28px !important;
+  font-size: 32px !important;
   font-weight: 800 !important;
   color: var(--scm-accent) !important;
   font-family: 'DM Mono', 'Roboto Mono', monospace !important;
@@ -3233,11 +3233,11 @@ body {
 }
 
 .vm-config-modal .cost-line.cost-sub span:first-child {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .vm-config-modal .cost-line.cost-sub span:last-child {
-  font-size: 12px;
+  font-size: 13.5px;
   font-family: 'DM Mono', 'Roboto Mono', monospace;
   font-weight: 600;
   color: var(--scm-text-muted);
@@ -4998,6 +4998,126 @@ body {
   font-weight: 800;
   color: var(--text-primary);
   margin: 0 0 4px;
+}
+
+/* ── VM Page: Header bar ── */
+.vm-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.vm-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.vm-header-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, .12), rgba(37, 99, 235, .04));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.vm-header-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.vm-header-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+
+.vm-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── VM Page: Toolbar (search + stats) ── */
+.vm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  flex-wrap: wrap;
+}
+
+.vm-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.vm-count-badge {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(37, 99, 235, .08);
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
+.vm-filtered-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.vm-showing-note {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  opacity: .7;
+}
+
+/* ── VM Page: Infinite scroll sentinel ── */
+.vm-scroll-sentinel {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+}
+
+.spinner-small {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--border-primary);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── VM Page: Current region tag ── */
+.current-region-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(34, 197, 94, 0.15);
+  color: rgb(34, 197, 94);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  letter-spacing: 0.03em;
 }
 
 .vm-hero-subtitle {
@@ -9200,7 +9320,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: var(--text-secondary);
 }
 
@@ -9209,19 +9329,19 @@ body {
   padding-top: 10px;
   margin-top: 4px;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   color: var(--text-primary);
 }
 
 .vm-config-modal .cost-amount {
   font-family: var(--font-mono);
-  font-size: 1.1rem;
+  font-size: 1.3rem;
   color: var(--accent);
   font-weight: 800;
 }
 
 .vm-config-modal .cost-line.cost-sub {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
 }
 

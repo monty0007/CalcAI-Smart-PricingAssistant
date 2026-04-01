@@ -1,8 +1,7 @@
-﻿import { useState, useEffect } from 'react';
-import { Search, ArrowLeft, X, Check, ChevronDown, Download, SlidersHorizontal, Info, ArrowUp, ArrowDown } from 'lucide-react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { Search, X, Check, SlidersHorizontal, ArrowUp, ArrowDown, Server } from 'lucide-react';
 import { useEstimate } from '../context/EstimateContext';
 import { fetchVmList, fetchVmPricingCompare, formatPrice, SUPPORTED_CURRENCIES, fetchBestVmPrices } from '../services/azurePricingApi';
-import { AZURE_REGIONS } from '../data/serviceCatalog';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -30,7 +29,6 @@ function getTooltipLines(skuName) {
     if (parts[0]) {
         const letter = parts[0].replace(/[^A-Za-z]/g, '')[0]?.toUpperCase();
         if (letter && SERIES_MAP[letter]) lines.push(SERIES_MAP[letter]);
-        // Extract vCPU number from sku part
         const vcpuMatch = parts[0].match(/([A-Za-z]+)(\d+)/);
         if (vcpuMatch) lines.push(`${vcpuMatch[2]} — The number of vCPUs`);
     }
@@ -39,7 +37,6 @@ function getTooltipLines(skuName) {
     return lines;
 }
 
-// ── Tooltip component ────────────────────────────────────────────"─
 function VmTooltip({ lines }) {
     if (!lines || lines.length === 0) return null;
     return (
@@ -51,30 +48,18 @@ function VmTooltip({ lines }) {
     );
 }
 
-function BoolCell({ value }) {
-    return (
-        <span style={{ color: value ? 'var(--success)' : 'var(--text-muted)' }}>
-            {value ? 'yes' : 'no'}
-        </span>
-    );
-}
-
-// ── Compare View Removed ──────────────────────────────────────────
-
-// ── Main Page ────────────────────────────────────────────────────"─
+// ── Main Page ────────────────────────────────────────────────────
 export default function VmComparisonPage() {
     const { region, currency, setCurrency } = useEstimate();
 
     const [searchQuery, setSearchQuery] = useState('');
     const [visibleCount, setVisibleCount] = useState(100);
-    const [allVms, setAllVms] = useState([]);       // all VMs loaded from backend
-    const [vmRows, setVmRows] = useState([]);         // filtered view shown in table
+    const [allVms, setAllVms] = useState([]);
+    const [vmRows, setVmRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState(null);
     const [sortConfig, setSortConfig] = useState({ key: 'linuxPrice', direction: 'asc' });
     const [selectedSkus, setSelectedSkus] = useState([]);
-
-    const loadMore = () => setVisibleCount(prev => prev + 100);
 
     const [showPricingCard, setShowPricingCard] = useState(false);
     const [pricingPeriod, setPricingPeriod] = useState('monthly');
@@ -82,10 +67,30 @@ export default function VmComparisonPage() {
     const [pricingData, setPricingData] = useState(null);
     const [pricingLoading, setPricingLoading] = useState(false);
 
-    const [lastUpdate, setLastUpdate] = useState(null);
     const [hoveredSku, setHoveredSku] = useState(null);
     const [bestPrices, setBestPrices] = useState({});
-    const [bgLoading, setBgLoading] = useState(false); // background fetch indicator
+
+    // Infinite scroll sentinel ref
+    const sentinelRef = useRef(null);
+
+    // IntersectionObserver for infinite scroll
+    const loadMore = useCallback(() => {
+        setVisibleCount(prev => {
+            if (prev >= vmRows.length) return prev;
+            return prev + 100;
+        });
+    }, [vmRows.length]);
+
+    useEffect(() => {
+        const sentinel = sentinelRef.current;
+        if (!sentinel) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => { if (entry.isIntersecting) loadMore(); },
+            { rootMargin: '200px' }
+        );
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [loadMore]);
 
     // Fetch optimal prices
     useEffect(() => {
@@ -102,58 +107,19 @@ export default function VmComparisonPage() {
         return () => { cancelled = true; };
     }, [currency]);
 
-    // Fetch last sync time once
-    useEffect(() => {
-        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-        fetch(`${apiBase}/health`)
-            .then(r => r.json())
-            .then(d => {
-                if (d.lastSync?.completedAt) {
-                    setLastUpdate(new Date(d.lastSync.completedAt));
-                } else {
-                    setLastUpdate('unknown');
-                }
-            })
-            .catch(() => { setLastUpdate('unknown'); });
-    }, []);
-
-    // Fetch first 500 VMs fast, then background-load the rest
+    // Fetch ALL VMs in one shot
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
         setLoadError(null);
         setAllVms([]);
         setVmRows([]);
-        setBgLoading(false);
 
-        const PAGE_SIZE = 100;
-
-        fetchVmList({ currency, region, limit: PAGE_SIZE, offset: 0 })
-            .then(async data => {
+        fetchVmList({ currency, region })
+            .then(data => {
                 if (cancelled) return;
-                const firstPage = data.items || [];
-                setAllVms(firstPage);
+                setAllVms(data.items || []);
                 setLoading(false);
-
-                // Background-load remaining pages without blocking the UI
-                if (data.hasMore) {
-                    setBgLoading(true);
-                    let offset = PAGE_SIZE;
-                    while (!cancelled) {
-                        try {
-                            const more = await fetchVmList({ currency, region, limit: PAGE_SIZE, offset });
-                            if (cancelled) break;
-                            const items = more.items || [];
-                            if (items.length === 0) break;
-                            setAllVms(prev => [...prev, ...items]);
-                            if (!more.hasMore) break;
-                            offset += PAGE_SIZE;
-                        } catch {
-                            break;
-                        }
-                    }
-                    if (!cancelled) setBgLoading(false);
-                }
             })
             .catch(err => {
                 if (!cancelled) {
@@ -165,19 +131,16 @@ export default function VmComparisonPage() {
         return () => { cancelled = true; };
     }, [currency, region]);
 
-    // Client-side filter — runs instantly whenever filters or the full VM list changes
+    // Client-side filter + sort
     useEffect(() => {
         const q = searchQuery.trim().toLowerCase();
-
         let rows = allVms;
 
         if (q) {
-            // strip 'standard_' prefix so 'd4s' matches 'Standard_D4s_v3'
             const term = q.startsWith('standard_') ? q.slice(9) : q;
             rows = rows.filter(vm => vm.skuName.toLowerCase().includes(term));
         }
 
-        // Apply best region and discount mapping
         rows = rows.map(vm => {
             const best = bestPrices[vm.skuName];
             let bestRegion = '';
@@ -189,7 +152,6 @@ export default function VmComparisonPage() {
                     bestRegion = best.region;
                     diffPercent = Math.round(((vm.linuxPrice - best.minPrice) / vm.linuxPrice) * 100);
                 } else if (vm.linuxPrice <= best.minPrice * 1.01) {
-                    // Current region IS the best — show it with "(Current)" label
                     bestRegion = best.region;
                     isCurrent = true;
                 } else {
@@ -210,10 +172,8 @@ export default function VmComparisonPage() {
                 if (key === 'diffPercent') return vm.diffPercent ?? 0;
                 return vm.skuName;
             };
-
             const aVal = getVal(a, sortConfig.key);
             const bVal = getVal(b, sortConfig.key);
-
             if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
             if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
@@ -265,61 +225,41 @@ export default function VmComparisonPage() {
         }
     };
 
-    const getRegionLabel = () => {
-        const r = AZURE_REGIONS.find(x => x.code === region);
-        return r ? `${r.name} (${region})` : region;
+    const SortIcon = ({ col }) => {
+        if (sortConfig.key !== col) return null;
+        return sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />;
     };
 
     return (
         <div className="vm-page content-area">
-            {/* ── Hero ──────────────────────────────────────────── */}
-            <div className="vm-hero-block">
-                <div className="vm-hero-top">
+            {/* ── Header ──────────────────────────────────── */}
+            <div className="vm-header-bar">
+                <div className="vm-header-left">
+                    <div className="vm-header-icon"><Server size={20} /></div>
                     <div>
-                        <h1 className="vm-hero-title">Azure VM Pricing</h1>
-                        <p className="vm-hero-subtitle">
-                            {allVms.length > 0 && !loading ? <><strong>{allVms.length}</strong> VMs{vmRows.length < allVms.length ? ` · ${vmRows.length} filtered` : ''}{bgLoading ? <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · loading more…</span> : ''} · </> : ''}
-                            <span className="vm-update-chip">
-                                {lastUpdate instanceof Date ? `Updated ${lastUpdate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : (lastUpdate === 'unknown' ? '' : 'Loading data...')}
-                            </span>
+                        <h1 className="vm-header-title">Azure VM Pricing</h1>
+                        <p className="vm-header-sub">
+                            Compare pay-as-you-go hourly pricing across all Azure VM sizes
                         </p>
                     </div>
-                    <div className="vm-hero-badges">
-                        <span className="vm-badge-pill azure">Azure only</span>
-                        <span className="vm-badge-pill payg">Pay-as-you-go</span>
-                        <span className="vm-badge-pill hourly">Per Hour</span>
-                    </div>
                 </div>
-                <p className="vm-hero-desc">
-                    Browse and compare Azure Virtual Machines strictly on price. Select up to 5 VMs to compare global regional pricing side-by-side.
-                </p>
-            </div>
-
-            {/* ── Controls bar ──────────────────────────────────── */}
-            <div className="vm-controls-bar">
-                <div className="controls-group">
+                <div className="vm-header-right">
                     <select className="ctrl-select" value={currency} onChange={e => setCurrency(e.target.value, [])}>
                         {SUPPORTED_CURRENCIES.map(c => (
-                            <option key={c.code} value={c.code}>{c.name} ({c.symbol})</option>
+                            <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
                         ))}
                     </select>
-                    <span className="ctrl-divider" />
-                    <span className="ctrl-pill">{getRegionLabel()}</span>
-                    <span className="ctrl-divider" />
-                    <span className="ctrl-pill">Standard</span>
-                    <span className="ctrl-divider" />
-                    <span className="ctrl-pill highlight">Pay-as-you-go</span>
                 </div>
             </div>
 
-            {/* ── Filter row ────────────────────────────────────── */}
-            <div className="vm-filter-row">
-                <div className="vm-search-wrap" style={{ flex: 1, maxWidth: '500px' }}>
+            {/* ── Search + Stats ───────────────────────────── */}
+            <div className="vm-toolbar">
+                <div className="vm-search-wrap">
                     <Search size={14} className="search-icon" />
                     <input
                         type="text"
                         className="vm-search-input"
-                        placeholder="Filter by name or series (e.g. D2s, B4ms)"
+                        placeholder="Search VMs  (e.g. D2s, B4ms, E8)"
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                     />
@@ -327,28 +267,39 @@ export default function VmComparisonPage() {
                         <button className="search-clear-btn" onClick={() => setSearchQuery('')}><X size={13} /></button>
                     )}
                 </div>
+                <div className="vm-stats-row">
+                    {!loading && (
+                        <>
+                            <span className="vm-count-badge">{vmRows.length.toLocaleString()} VMs</span>
+                            {vmRows.length < allVms.length && (
+                                <span className="vm-filtered-note">of {allVms.length.toLocaleString()}</span>
+                            )}
+                            <span className="vm-showing-note">Showing {Math.min(visibleCount, vmRows.length).toLocaleString()}</span>
+                        </>
+                    )}
+                </div>
             </div>
 
-            {/* ── VM Table ──────────────────────────────────────── */}
+            {/* ── VM Table ──────────────────────────────────── */}
             <div className="vm-table-container">
                 <table className="vm-table">
                     <thead>
                         <tr>
                             <th style={{ width: 36 }}></th>
                             <th className="sortable-th" onClick={() => handleSort('skuName')}>
-                                VM Name {sortConfig.key === 'skuName' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                                VM Name <SortIcon col="skuName" />
                             </th>
                             <th className="sortable-th" onClick={() => handleSort('linuxPrice')}>
-                                Linux / hr {sortConfig.key === 'linuxPrice' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                                Linux / hr <SortIcon col="linuxPrice" />
                             </th>
                             <th className="sortable-th" onClick={() => handleSort('windowsPrice')}>
-                                Windows / hr {sortConfig.key === 'windowsPrice' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                                Windows / hr <SortIcon col="windowsPrice" />
                             </th>
                             <th className="sortable-th" onClick={() => handleSort('bestRegion')}>
-                                Best Region {sortConfig.key === 'bestRegion' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                                Best Region <SortIcon col="bestRegion" />
                             </th>
                             <th className="sortable-th" onClick={() => handleSort('diffPercent')}>
-                                Savings {sortConfig.key === 'diffPercent' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                                Savings <SortIcon col="diffPercent" />
                             </th>
                         </tr>
                     </thead>
@@ -357,12 +308,11 @@ export default function VmComparisonPage() {
                             const isSelected = selectedSkus.includes(vm.skuName);
                             const tooltipLines = getTooltipLines(vm.skuName);
                             const isHovered = hoveredSku === vm.skuName;
-                            const isEven = idx % 2 === 0;
 
                             return (
                                 <tr
                                     key={vm.skuName}
-                                    className={`vm-row ${isSelected ? 'selected' : ''} ${isEven ? 'even' : ''}`}
+                                    className={`vm-row ${isSelected ? 'selected' : ''}`}
                                     onClick={() => toggleSelection(vm.skuName)}
                                 >
                                     <td>
@@ -403,18 +353,7 @@ export default function VmComparisonPage() {
                                         <div className="best-region-cell">
                                             <span className="best-region-name">{vm.bestRegion || '—'}</span>
                                             {vm.isCurrent && (
-                                                <span style={{
-                                                    display: 'inline-block',
-                                                    marginLeft: '6px',
-                                                    padding: '1px 7px',
-                                                    borderRadius: '20px',
-                                                    fontSize: '0.7rem',
-                                                    fontWeight: 600,
-                                                    background: 'rgba(34, 197, 94, 0.15)',
-                                                    color: 'rgb(34, 197, 94)',
-                                                    border: '1px solid rgba(34, 197, 94, 0.3)',
-                                                    letterSpacing: '0.03em'
-                                                }}>Current</span>
+                                                <span className="current-region-tag">Current</span>
                                             )}
                                         </div>
                                     </td>
@@ -442,32 +381,18 @@ export default function VmComparisonPage() {
                             <tr>
                                 <td colSpan={6} className="vm-empty-state">
                                     <SlidersHorizontal size={32} strokeWidth={1} />
-                                    <p>No VMs found matching your filters</p>
-                                    <span>Try adjusting the vCPU, Memory, or search filters above</span>
+                                    <p>No VMs found matching your search</p>
+                                    <span>Try a different search term</span>
                                 </td>
                             </tr>
                         )}
                     </tbody>
                 </table>
 
+                {/* Infinite scroll sentinel */}
                 {!loading && visibleCount < vmRows.length && (
-                    <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}>
-                        <button
-                            onClick={loadMore}
-                            style={{
-                                padding: '8px 32px', borderRadius: 8,
-                                border: '1px solid var(--border-primary)',
-                                background: 'var(--bg-secondary)',
-                                color: 'var(--text-primary)',
-                                fontWeight: 600, fontSize: '0.85rem',
-                                cursor: 'pointer',
-                                transition: 'background 0.15s',
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                        >
-                            Load More
-                        </button>
+                    <div ref={sentinelRef} className="vm-scroll-sentinel">
+                        <div className="spinner-small" />
                     </div>
                 )}
             </div>

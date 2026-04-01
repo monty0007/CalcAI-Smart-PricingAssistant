@@ -55,20 +55,26 @@ export function AuthProvider({ children }) {
                 const idToken = await firebaseUser.getIdToken();
                 setToken(idToken);
 
-                const dbData = await syncUserWithBackend(firebaseUser);
+                // Set user immediately from Firebase data so the app can render
                 setUser({
                     id: firebaseUser.uid,
                     uid: firebaseUser.uid,
                     email: firebaseUser.email,
                     name: firebaseUser.displayName || firebaseUser.email,
-                    // Merge any stored preferences from our DB
-                    ...(dbData?.user || {}),
+                });
+                setLoading(false);
+
+                // Sync with backend in the background (non-blocking)
+                syncUserWithBackend(firebaseUser).then(dbData => {
+                    if (dbData?.user) {
+                        setUser(prev => ({ ...prev, ...dbData.user }));
+                    }
                 });
             } else {
                 setUser(null);
                 setToken(null);
+                setLoading(false);
             }
-            setLoading(false);
         });
         return unsubscribe;
     }, []);
