@@ -38,6 +38,30 @@ function isVMLike(serviceName) {
     return s.includes('virtual machine') || s.includes('cloud service');
 }
 
+function isStorageLike(serviceName) {
+    return (serviceName || '').toLowerCase() === 'storage';
+}
+
+// ── Storage helpers ───────────────────────────────────
+function getStorageProductName(sType, perf, fStruct) {
+    if (sType === 'file') return perf === 'premium' ? 'Premium Files' : 'Files v2';
+    if (sType === 'data-lake') return fStruct === 'hierarchical'
+        ? 'Azure Data Lake Storage Gen2 Hierarchical Namespace'
+        : 'Azure Data Lake Storage Gen2 Flat Namespace';
+    if (perf === 'premium') return fStruct === 'hierarchical'
+        ? 'Premium Block Blob v2 Hierarchical Namespace'
+        : 'Premium Block Blob';
+    return fStruct === 'hierarchical'
+        ? 'General Block Blob v2 Hierarchical Namespace'
+        : 'General Block Blob v2';
+}
+
+function getStorageSkuName(tier, redund, perf) {
+    if (perf === 'premium') return `Premium ${redund}`;
+    const t = { hot: 'Hot', cool: 'Cool', cold: 'Cold', archive: 'Archive' }[tier] || 'Hot';
+    return `${t} ${redund}`;
+}
+
 function getBaseProductName(productName) {
     // "Virtual Machines Dv3 Series Windows" → "Virtual Machines Dv3 Series"
     return (productName || '')
@@ -77,6 +101,7 @@ const TRANSFER_TYPES = [
 export default function ServiceConfigModal({ service, onClose, editItem = null }) {
     const { addItem, updateItem, currency, region } = useEstimate();
     const vmMode = isVMLike(service.serviceName);
+    const storageMode = isStorageLike(service.serviceName);
 
     // Core state
     const [allData, setAllData] = useState([]);
@@ -134,6 +159,20 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
     const [showBandwidth, setShowBandwidth] = useState(false);
     const [bandwidthGB, setBandwidthGB] = useState(0);
     const [bandwidthData, setBandwidthData] = useState([]);
+
+    // ── Storage-specific state ────────────────────────
+    const [storageType, setStorageType] = useState('block-blob');
+    const [storagePerformance, setStoragePerformance] = useState('standard');
+    const [fileStructure, setFileStructure] = useState('flat');
+    const [accessTier, setAccessTier] = useState('hot');
+    const [redundancy, setRedundancy] = useState('LRS');
+    const [capacityGB, setCapacityGB] = useState(1000);
+    const [writeOpsUnits, setWriteOpsUnits] = useState(10);
+    const [listCreateOpsUnits, setListCreateOpsUnits] = useState(10);
+    const [readOpsUnits, setReadOpsUnits] = useState(10);
+    const [otherOpsUnits, setOtherOpsUnits] = useState(1);
+    const [dataRetrievalGB, setDataRetrievalGB] = useState(0);
+    const [sftpEnabled, setSftpEnabled] = useState(false);
 
     // ── Fetch VM pricing ────────────────────────────
     useEffect(() => {
@@ -410,7 +449,105 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
         return cheapest ? cheapest.retailPrice * billableGB : 0;
     })();
 
-    const totalMonthly = computeMonthly + diskMonthly + snapshotMonthly + confidentialMonthly + storageTxMonthly + bandwidthMonthly + osLicenseMonthly + sqlLicenseMonthly;
+    // ── Storage-specific memos ────────────────────────
+    // Available options based on current storage selections
+    const availableRedundancies = useMemo(() => {
+        if (!storageMode) return [];
+        if (storagePerformance === 'premium') return ['LRS', 'ZRS'];
+        if (storageType === 'file') return ['LRS', 'ZRS', 'GRS', 'RA-GRS'];
+        if (accessTier === 'archive') return ['LRS', 'GRS', 'RA-GRS'];
+        return ['LRS', 'ZRS', 'GRS', 'RA-GRS', 'GZRS', 'RA-GZRS'];
+    }, [storageMode, storagePerformance, storageType, accessTier]);
+
+    const availableAccessTiers = useMemo(() => {
+        if (!storageMode) return [];
+        if (storagePerformance === 'premium') return ['hot'];
+        if (storageType === 'file') return ['hot', 'cool'];
+        if (['ZRS', 'GZRS', 'RA-GZRS'].includes(redundancy)) return ['hot', 'cool', 'cold'];
+        return ['hot', 'cool', 'cold', 'archive'];
+    }, [storageMode, storagePerformance, storageType, redundancy]);
+
+    // Auto-correct invalid combos
+    useEffect(() => {
+        if (!storageMode) return;
+        if (!availableRedundancies.includes(redundancy)) setRedundancy(availableRedundancies[0]);
+    }, [availableRedundancies, redundancy, storageMode]);
+    useEffect(() => {
+        if (!storageMode) return;
+        if (!availableAccessTiers.includes(accessTier)) setAccessTier(availableAccessTiers[0]);
+    }, [availableAccessTiers, accessTier, storageMode]);
+    useEffect(() => {
+        if (!storageMode) return;
+        if (storageType === 'data-lake') setFileStructure('hierarchical');
+        if (storageType === 'file') setFileStructure('flat');
+    }, [storageType, storageMode]);
+
+    // Find pricing items for current storage selection
+    const storageTargetItems = useMemo(() => {
+        if (!storageMode || allData.length === 0) return [];
+        const productName = getStorageProductName(storageType, storagePerformance, fileStructure);
+        const skuName = getStorageSkuName(accessTier, redundancy, storagePerformance);
+        return allData.filter(i =>
+            i.productName === productName &&
+            i.skuName === skuName &&
+            i.type === 'Consumption'
+        );
+    }, [allData, storageMode, storageType, storagePerformance, fileStructure, accessTier, redundancy]);
+
+    const storageCapacityPrice = useMemo(() => {
+        const item = storageTargetItems.find(i => i.meterName?.includes('Data Stored'));
+        return item?.retailPrice || 0;
+    }, [storageTargetItems]);
+
+    const storageWriteOpsPrice = useMemo(() => {
+        const item = storageTargetItems.find(i => i.meterName?.includes('Write Operations'));
+        return item?.retailPrice || 0;
+    }, [storageTargetItems]);
+
+    const storageListCreateOpsPrice = useMemo(() => {
+        const item = storageTargetItems.find(i =>
+            i.meterName?.includes('List and Create') ||
+            i.meterName?.includes('List Operations')
+        );
+        return item?.retailPrice ?? storageWriteOpsPrice;
+    }, [storageTargetItems, storageWriteOpsPrice]);
+
+    const storageReadOpsPrice = useMemo(() => {
+        const item = storageTargetItems.find(i => i.meterName?.includes('Read Operations'));
+        return item?.retailPrice || 0;
+    }, [storageTargetItems]);
+
+    const storageAllOtherOpsPrice = useMemo(() => {
+        const item = storageTargetItems.find(i =>
+            i.meterName === 'All Other Operations' ||
+            i.meterName?.includes('Other Operations')
+        );
+        return item?.retailPrice ?? storageReadOpsPrice;
+    }, [storageTargetItems, storageReadOpsPrice]);
+
+    const storageDataRetrievalPrice = useMemo(() => {
+        const item = storageTargetItems.find(i => i.meterName?.includes('Data Retrieval'));
+        return item?.retailPrice || 0;
+    }, [storageTargetItems]);
+
+    const storageDataWritePrice = useMemo(() => {
+        const item = storageTargetItems.find(i => i.meterName?.includes('Data Write'));
+        return item?.retailPrice || 0;
+    }, [storageTargetItems]);
+
+    // Storage monthly costs
+    const storageCapacityMonthly = storageMode ? storageCapacityPrice * capacityGB : 0;
+    const storageWriteMonthly = storageMode ? writeOpsUnits * storageWriteOpsPrice : 0;
+    const storageListCreateMonthly = storageMode ? listCreateOpsUnits * storageListCreateOpsPrice : 0;
+    const storageReadMonthly = storageMode ? readOpsUnits * storageReadOpsPrice : 0;
+    const storageOtherMonthly = storageMode ? otherOpsUnits * storageAllOtherOpsPrice : 0;
+    const storageRetrievalMonthly = storageMode ? dataRetrievalGB * storageDataRetrievalPrice : 0;
+    const storageSFTPMonthly = storageMode && sftpEnabled ? 0.30 * 730 : 0;
+    const storageMonthlyTotal = storageCapacityMonthly + storageWriteMonthly + storageListCreateMonthly + storageReadMonthly + storageOtherMonthly + storageRetrievalMonthly + storageSFTPMonthly;
+
+    const totalMonthly = storageMode
+        ? storageMonthlyTotal
+        : computeMonthly + diskMonthly + snapshotMonthly + confidentialMonthly + storageTxMonthly + bandwidthMonthly + osLicenseMonthly + sqlLicenseMonthly;
 
     // ── Disk options filtered by tier and redundancy ────────────────
     const filteredDisks = useMemo(() => {
@@ -440,6 +577,89 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
 
     // ── Add or Update to estimate ────────────────────
     function handleSaveItem() {
+        // ── Storage save path ──────────────────────────
+        if (storageMode) {
+            const productName = getStorageProductName(storageType, storagePerformance, fileStructure);
+            const skuName = getStorageSkuName(accessTier, redundancy, storagePerformance);
+            const regionCode = selectedRegion;
+            const storageItems = [];
+
+            if (capacityGB > 0 && storageCapacityPrice > 0) {
+                storageItems.push({
+                    serviceName: 'Storage',
+                    productName,
+                    skuName,
+                    meterName: `Capacity (${skuName} Data Stored)`,
+                    retailPrice: storageCapacityPrice,
+                    unitOfMeasure: '1 GB/Month',
+                    armRegionName: regionCode,
+                    location: regionCode,
+                    currencyCode: currency,
+                    quantity: capacityGB,
+                    hoursPerMonth: 730,
+                });
+            }
+            const opRows = [
+                { label: 'Write Operations', qty: writeOpsUnits, price: storageWriteOpsPrice },
+                { label: 'List & Create Container Operations', qty: listCreateOpsUnits, price: storageListCreateOpsPrice },
+                { label: 'Read Operations', qty: readOpsUnits, price: storageReadOpsPrice },
+                { label: 'All Other Operations', qty: otherOpsUnits, price: storageAllOtherOpsPrice },
+            ];
+            opRows.forEach(op => {
+                if (op.qty > 0 && op.price > 0) {
+                    storageItems.push({
+                        serviceName: 'Storage',
+                        productName,
+                        skuName,
+                        meterName: op.label,
+                        retailPrice: op.price,
+                        unitOfMeasure: '10K',
+                        armRegionName: regionCode,
+                        location: regionCode,
+                        currencyCode: currency,
+                        quantity: op.qty,
+                        hoursPerMonth: 730,
+                    });
+                }
+            });
+            if (dataRetrievalGB > 0 && storageDataRetrievalPrice > 0) {
+                storageItems.push({
+                    serviceName: 'Storage',
+                    productName,
+                    skuName,
+                    meterName: 'Data Retrieval',
+                    retailPrice: storageDataRetrievalPrice,
+                    unitOfMeasure: '1 GB',
+                    armRegionName: regionCode,
+                    location: regionCode,
+                    currencyCode: currency,
+                    quantity: dataRetrievalGB,
+                    hoursPerMonth: 730,
+                });
+            }
+            if (sftpEnabled) {
+                storageItems.push({
+                    serviceName: 'Storage',
+                    productName: 'SFTP',
+                    skuName: 'SFTP',
+                    meterName: 'SFTP Enabled Hours',
+                    retailPrice: 0.30,
+                    unitOfMeasure: 'Hour',
+                    armRegionName: regionCode,
+                    location: regionCode,
+                    currencyCode: currency,
+                    quantity: 730,
+                    hoursPerMonth: 730,
+                });
+            }
+
+            if (storageItems.length === 0) return;
+            storageItems.forEach(i => addItem(i));
+            setToast(true);
+            setTimeout(() => setToast(false), 2000);
+            return;
+        }
+
         if (!selectedItem) return;
 
         // Full hourly rate = compute + OS license (when applicable).
@@ -592,13 +812,78 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                                         {AZURE_REGIONS.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}
                                     </select>
                                 </div>
-                                <div className="modal-field">
-                                    <label>Category</label>
-                                    <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}>
-                                        {filterOptions.categories.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                </div>
-                                {vmMode && (
+
+                                {/* ── Storage-specific filters ── */}
+                                {storageMode && (
+                                    <>
+                                        <div className="modal-field">
+                                            <label>Type</label>
+                                            <select value={storageType} onChange={e => setStorageType(e.target.value)}>
+                                                <option value="block-blob">Block Blob Storage</option>
+                                                <option value="data-lake">Azure Data Lake Storage</option>
+                                                <option value="file">File Storage</option>
+                                            </select>
+                                        </div>
+                                        {storageType !== 'file' && (
+                                            <div className="modal-field">
+                                                <label>Performance</label>
+                                                <select value={storagePerformance} onChange={e => setStoragePerformance(e.target.value)}>
+                                                    <option value="standard">Standard</option>
+                                                    <option value="premium">Premium</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                        {storageType === 'file' && (
+                                            <div className="modal-field">
+                                                <label>Performance</label>
+                                                <select value={storagePerformance} onChange={e => setStoragePerformance(e.target.value)}>
+                                                    <option value="standard">Standard</option>
+                                                    <option value="premium">Premium</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                        {storageType === 'block-blob' && (
+                                            <div className="modal-field">
+                                                <label>File Structure</label>
+                                                <select value={fileStructure} onChange={e => setFileStructure(e.target.value)}>
+                                                    <option value="flat">Flat Namespace</option>
+                                                    <option value="hierarchical">Hierarchical Namespace</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                        {storagePerformance === 'standard' && (
+                                            <div className="modal-field">
+                                                <label>Access Tier</label>
+                                                <select value={accessTier} onChange={e => setAccessTier(e.target.value)}>
+                                                    {availableAccessTiers.map(t => (
+                                                        <option key={t} value={t}>
+                                                            {t.charAt(0).toUpperCase() + t.slice(1)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
+                                        <div className="modal-field">
+                                            <label>Redundancy</label>
+                                            <select value={redundancy} onChange={e => setRedundancy(e.target.value)}>
+                                                {availableRedundancies.map(r => (
+                                                    <option key={r} value={r}>{r}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* ── Non-storage filters ── */}
+                                {!storageMode && (
+                                    <div className="modal-field">
+                                        <label>Category</label>
+                                        <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}>
+                                            {filterOptions.categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                                {!storageMode && vmMode && (
                                     <>
                                         <div className="modal-field">
                                             <label>Instance Series</label>
@@ -621,8 +906,240 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                             </div>
                         </div>
 
+                        {/* ── Storage: Capacity & Operations ─── */}
+                        {storageMode && (
+                            <>
+                                {loading && (
+                                    <div className="modal-section">
+                                        <div className="loading-spinner">
+                                            <div className="spinner"></div>
+                                            Fetching real-time pricing from Azure...
+                                        </div>
+                                    </div>
+                                )}
+                                {error && (
+                                    <div className="modal-section" style={{ color: 'var(--danger)' }}>Error: {error}</div>
+                                )}
+                                {/* Capacity */}
+                                <div className="modal-section">
+                                    <h4>Capacity</h4>
+                                    <div className="config-grid">
+                                        <div className="modal-field">
+                                            <label>Storage (GB)</label>
+                                            <input type="number" min="1" value={capacityGB}
+                                                onChange={e => setCapacityGB(Math.max(1, parseInt(e.target.value) || 1))} />
+                                        </div>
+                                    </div>
+                                    {storageCapacityPrice > 0 && (
+                                        <div className="price-formula" style={{ marginTop: 8 }}>
+                                            <span className="formula-value">{capacityGB}</span>
+                                            <span className="formula-label">GB</span>
+                                            <span className="formula-op">×</span>
+                                            <span className="formula-value">{formatPrice(storageCapacityPrice, currency)}</span>
+                                            <span className="formula-label">Per GB/mo</span>
+                                            <span className="formula-eq">=</span>
+                                            <span className="formula-total">{formatPrice(storageCapacityMonthly, currency)}</span>
+                                        </div>
+                                    )}
+                                    {!loading && storageCapacityPrice === 0 && (
+                                        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                                            No pricing found for this combination. Try a different region, type, or redundancy.
+                                        </p>
+                                    )}
+                                </div>
+
+                                {/* Savings Options for Storage */}
+                                <div className="modal-section">
+                                    <h4>Savings Options</h4>
+                                    <div className="savings-options">
+                                        <label className="savings-option selected">
+                                            <input type="radio" checked readOnly />
+                                            <div className="savings-label">
+                                                <span>Pay as you go</span>
+                                            </div>
+                                        </label>
+                                        <label className="savings-option disabled">
+                                            <input type="radio" disabled />
+                                            <div className="savings-label">
+                                                <span>1 Year Reserved</span>
+                                                <span className="savings-tag">~38% savings — see Azure portal</span>
+                                            </div>
+                                        </label>
+                                        <label className="savings-option disabled">
+                                            <input type="radio" disabled />
+                                            <div className="savings-label">
+                                                <span>3 Year Reserved</span>
+                                                <span className="savings-tag">~52% savings — see Azure portal</span>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {/* Operations and Data Transfer */}
+                                <div className="modal-section">
+                                    <h4>Operations and Data Transfer</h4>
+                                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                                        Prices shown are per 10,000 operations.
+                                    </p>
+
+                                    {/* Write Operations */}
+                                    <div className="storage-op-row">
+                                        <div className="storage-op-label">
+                                            <span>Write Operations</span>
+                                        </div>
+                                        <div className="price-formula">
+                                            <input type="number" min="0" value={writeOpsUnits}
+                                                onChange={e => setWriteOpsUnits(Math.max(0, parseInt(e.target.value) || 0))}
+                                                style={{ width: 70 }} />
+                                            <span className="formula-label">× 10,000 ops</span>
+                                            <span className="formula-op">×</span>
+                                            <span className="formula-value">{formatPrice(storageWriteOpsPrice, currency)}</span>
+                                            <span className="formula-label">Per 10K</span>
+                                            <span className="formula-eq">=</span>
+                                            <span className="formula-total">{formatPrice(storageWriteMonthly, currency)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* List and Create Container Operations */}
+                                    <div className="storage-op-row">
+                                        <div className="storage-op-label">
+                                            <span>List and Create Container Operations</span>
+                                        </div>
+                                        <div className="price-formula">
+                                            <input type="number" min="0" value={listCreateOpsUnits}
+                                                onChange={e => setListCreateOpsUnits(Math.max(0, parseInt(e.target.value) || 0))}
+                                                style={{ width: 70 }} />
+                                            <span className="formula-label">× 10,000 ops</span>
+                                            <span className="formula-op">×</span>
+                                            <span className="formula-value">{formatPrice(storageListCreateOpsPrice, currency)}</span>
+                                            <span className="formula-label">Per 10K</span>
+                                            <span className="formula-eq">=</span>
+                                            <span className="formula-total">{formatPrice(storageListCreateMonthly, currency)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Read Operations */}
+                                    <div className="storage-op-row">
+                                        <div className="storage-op-label">
+                                            <span>Read Operations</span>
+                                        </div>
+                                        <div className="price-formula">
+                                            <input type="number" min="0" value={readOpsUnits}
+                                                onChange={e => setReadOpsUnits(Math.max(0, parseInt(e.target.value) || 0))}
+                                                style={{ width: 70 }} />
+                                            <span className="formula-label">× 10,000 ops</span>
+                                            <span className="formula-op">×</span>
+                                            <span className="formula-value">{formatPrice(storageReadOpsPrice, currency)}</span>
+                                            <span className="formula-label">Per 10K</span>
+                                            <span className="formula-eq">=</span>
+                                            <span className="formula-total">{formatPrice(storageReadMonthly, currency)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* All Other Operations */}
+                                    <div className="storage-op-row">
+                                        <div className="storage-op-label">
+                                            <span>All Other Operations</span>
+                                        </div>
+                                        <div className="price-formula">
+                                            <input type="number" min="0" value={otherOpsUnits}
+                                                onChange={e => setOtherOpsUnits(Math.max(0, parseInt(e.target.value) || 0))}
+                                                style={{ width: 70 }} />
+                                            <span className="formula-label">× 10,000 ops</span>
+                                            <span className="formula-op">×</span>
+                                            <span className="formula-value">{formatPrice(storageAllOtherOpsPrice, currency)}</span>
+                                            <span className="formula-label">Per 10K</span>
+                                            <span className="formula-eq">=</span>
+                                            <span className="formula-total">{formatPrice(storageOtherMonthly, currency)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Data Retrieval */}
+                                    <div className="storage-op-row" style={{ marginTop: 16 }}>
+                                        <div className="storage-op-label">
+                                            <span>Data Retrieval</span>
+                                        </div>
+                                        <div className="price-formula">
+                                            <input type="number" min="0" value={dataRetrievalGB}
+                                                onChange={e => setDataRetrievalGB(Math.max(0, parseInt(e.target.value) || 0))}
+                                                style={{ width: 70 }} />
+                                            <span className="formula-label">GB</span>
+                                            <span className="formula-op">×</span>
+                                            <span className="formula-value">{formatPrice(storageDataRetrievalPrice, currency)}</span>
+                                            <span className="formula-label">Per GB</span>
+                                            <span className="formula-eq">=</span>
+                                            <span className="formula-total">{formatPrice(storageRetrievalMonthly, currency)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Data Write note */}
+                                    {storageDataWritePrice === 0 && (
+                                        <div className="storage-op-row" style={{ marginTop: 8 }}>
+                                            <div className="storage-op-label"><span>Data Write</span></div>
+                                            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', paddingTop: 4 }}>
+                                                Data write (per GB) is provided free of charge
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* SFTP */}
+                                <div className="modal-section">
+                                    <h4>SSH File Transfer Protocol (SFTP)</h4>
+                                    <label className="toggle-row custom-checkbox-row">
+                                        <input type="checkbox" className="custom-checkbox" checked={sftpEnabled}
+                                            onChange={e => setSftpEnabled(e.target.checked)} />
+                                        <span className="checkbox-label">Enable SFTP for this Storage Account</span>
+                                        <div className="info-tooltip">
+                                            <Info size={12} />
+                                            <span className="tooltip-text">SFTP endpoint charges $0.30/hour while enabled (~{formatPrice(storageSFTPMonthly, currency)}/mo).</span>
+                                        </div>
+                                    </label>
+                                </div>
+
+                                {/* Storage Cost Breakdown */}
+                                <div className="cost-breakdown">
+                                    <h4>Cost Summary</h4>
+                                    <div className="cost-lines">
+                                        {storageCapacityMonthly > 0 && (
+                                            <div className="cost-line">
+                                                <span>Capacity ({capacityGB} GB, {redundancy})</span>
+                                                <span>{formatPrice(storageCapacityMonthly, currency)}</span>
+                                            </div>
+                                        )}
+                                        {(storageWriteMonthly + storageListCreateMonthly + storageReadMonthly + storageOtherMonthly) > 0 && (
+                                            <div className="cost-line">
+                                                <span>Operations</span>
+                                                <span>{formatPrice(storageWriteMonthly + storageListCreateMonthly + storageReadMonthly + storageOtherMonthly, currency)}</span>
+                                            </div>
+                                        )}
+                                        {storageRetrievalMonthly > 0 && (
+                                            <div className="cost-line">
+                                                <span>Data Retrieval ({dataRetrievalGB} GB)</span>
+                                                <span>{formatPrice(storageRetrievalMonthly, currency)}</span>
+                                            </div>
+                                        )}
+                                        {storageSFTPMonthly > 0 && (
+                                            <div className="cost-line">
+                                                <span>SFTP (730 hrs)</span>
+                                                <span>{formatPrice(storageSFTPMonthly, currency)}</span>
+                                            </div>
+                                        )}
+                                        <div className="cost-line cost-total">
+                                            <span>Estimated Monthly Cost</span>
+                                            <span className="cost-amount">{formatPrice(storageMonthlyTotal, currency)}</span>
+                                        </div>
+                                        <div className="cost-line cost-sub">
+                                            <span>Estimated Yearly Cost</span>
+                                            <span>{formatPrice(storageMonthlyTotal * 12, currency)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
                         {/* ── Section 2: Instance Selection ────── */}
-                        <div className="modal-section">
+                        {!storageMode && <div className="modal-section">
                             <h4>
                                 Select Instance
                                 {!loading && ` (${filteredPricing.length})`}
@@ -681,10 +1198,10 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                                     )}
                                 </div>
                             )}
-                        </div>
+                        </div>}
 
                         {/* ── Section 3: Quantity ────────────────── */}
-                        {selectedItem && (
+                        {!storageMode && selectedItem && (
                             <div className="modal-section">
                                 <div className="config-grid">
                                     <div className="modal-field">
@@ -996,13 +1513,17 @@ export default function ServiceConfigModal({ service, onClose, editItem = null }
                     <div className="modal-footer">
                         <button className="btn-secondary" onClick={onClose}>Cancel</button>
                         {!editItem && (
-                            <button className="btn-primary" onClick={handleSaveItem} disabled={!selectedItem}
-                                style={{ flex: 'none', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 6, opacity: !selectedItem ? 0.5 : 1 }}>
+                            <button className="btn-primary"
+                                onClick={handleSaveItem}
+                                disabled={storageMode ? false : !selectedItem}
+                                style={{ flex: 'none', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 6, opacity: (!storageMode && !selectedItem) ? 0.5 : 1 }}>
                                 <Plus size={16} /> Add More
                             </button>
                         )}
-                        <button className="btn-primary" onClick={handleSaveAndClose} disabled={!selectedItem}
-                            style={{ flex: 'none', padding: '10px 24px', opacity: !selectedItem ? 0.5 : 1 }}>
+                        <button className="btn-primary"
+                            onClick={handleSaveAndClose}
+                            disabled={storageMode ? false : !selectedItem}
+                            style={{ flex: 'none', padding: '10px 24px', opacity: (!storageMode && !selectedItem) ? 0.5 : 1 }}>
                             {editItem ? 'Update & Close' : 'Add & Close'}
                         </button>
                     </div>

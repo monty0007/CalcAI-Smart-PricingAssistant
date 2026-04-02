@@ -41,10 +41,34 @@ router.post('/calculate_estimate', async (req, res) => {
         const rateRes = await query('SELECT rate_from_usd FROM currency_rates WHERE currency_code = $1', [currency]);
         const rate = rateRes.rows.length > 0 ? rateRes.rows[0].rate_from_usd : 1.0;
 
-        const breakdown = [];
-        let total = 0;
+        // ── Process ALL items in PARALLEL ────────────────────────────────
+        async function processItem(rawItem) {
+            // Normalize type aliases — the AI model sometimes ignores the enum
+            // and uses verbose names like "virtual-machines", "blob-storage", etc.
+            const TYPE_ALIASES = {
+                'virtual-machines': 'vm', 'virtual machine': 'vm', 'virtualmachine': 'vm',
+                'virtual_machines': 'vm', 'virtualmachines': 'vm', 'compute': 'vm',
+                'blob-storage': 'storage', 'blob_storage': 'storage', 'blob storage': 'storage',
+                'azure-storage': 'storage', 'object-storage': 'storage',
+                'azure-sql': 'sql_database', 'azure_sql': 'sql_database',
+                'sql-database': 'sql_database', 'sql-db': 'sql_database', 'sql server': 'sql_database',
+                'azure-functions': 'functions', 'azure_functions': 'functions', 'function': 'functions',
+                'kubernetes': 'aks', 'azure-kubernetes': 'aks', 'azure-aks': 'aks',
+                'redis-cache': 'redis', 'cache': 'redis', 'azure-cache': 'redis',
+                'cosmos': 'cosmos_db', 'cosmosdb': 'cosmos_db', 'azure-cosmos': 'cosmos_db',
+                'disk': 'managed_disk', 'managed-disk': 'managed_disk', 'managed_disk': 'managed_disk',
+                'bandwidth': 'bandwidth', 'egress': 'bandwidth', 'data-transfer': 'bandwidth',
+                'app-service': 'app_service', 'app_service': 'app_service', 'webapp': 'app_service',
+                'api-management': 'api_management', 'apim': 'api_management',
+                'load-balancer': 'load_balancer', 'lb': 'load_balancer',
+                'ip': 'ip_address', 'public-ip': 'ip_address', 'ip-address': 'ip_address',
+                'microsoft-defender': 'defender', 'azure-defender': 'defender',
+                'azure-monitor': 'monitor', 'log-analytics': 'monitor',
+            };
+            const normalizedType = TYPE_ALIASES[rawItem.type?.toLowerCase()] || rawItem.type;
+            const item = { ...rawItem, type: normalizedType };
 
-        for (const item of items) {
+            const itemBreakdown = [];
             const region = (item.region || 'centralindia').toLowerCase().replace(/\s+/g, '');
             const qty = item.quantity || 1;
 
@@ -160,14 +184,14 @@ router.post('/calculate_estimate', async (req, res) => {
                         console.warn(`No VM match for sku=${item.sku}, region=${region}`);
                     }
 
-                    breakdown.push({
+                    itemBreakdown.push({
                         name: item.name || `VM – ${item.sku || 'Unknown'}`,
                         cost: parseFloat(itemCost.toFixed(2)),
                         note: res.rows.length > 0
                             ? (res.rows[0].sku_name + osNote)
                             : 'No pricing match found'
                     });
-                    total += itemCost;
+                    
                     break;
                 }
 
@@ -236,12 +260,12 @@ router.post('/calculate_estimate', async (req, res) => {
                         console.warn(`No Managed Disk match for diskType=${dType}, tier=${diskTier}, redundancy=${redundancy}`);
                     }
 
-                    breakdown.push({
+                    itemBreakdown.push({
                         name: item.name || `Disk – ${dType || 'Unknown'}`,
                         cost: parseFloat(diskCapacityCost.toFixed(2)),
                         note: dbResult.rows[0]?.sku_name || 'no match'
                     });
-                    total += diskCapacityCost;
+                    
 
                     // ── Disk Transaction Pricing ──
                     const transactions = item.transactions || 0;
@@ -264,12 +288,12 @@ router.post('/calculate_estimate', async (req, res) => {
                             txCost = txResult.rows[0].retail_price * (transactions / 10000) * qty * rate;
                         }
 
-                        breakdown.push({
+                        itemBreakdown.push({
                             name: (item.name || `Disk – ${dType}`) + ' (Transactions)',
                             cost: parseFloat(txCost.toFixed(2)),
                             note: txResult.rows[0]?.meter_name || 'no match'
                         });
-                        total += txCost;
+                        
                     }
                     break;
                 }
@@ -315,12 +339,12 @@ router.post('/calculate_estimate', async (req, res) => {
                         itemCost = dbResult.rows[0].retail_price * gb * rate;
                     }
 
-                    breakdown.push({
+                    itemBreakdown.push({
                         name: item.name || `Bandwidth – ${gb} GB ${transferType}`,
                         cost: parseFloat(itemCost.toFixed(2)),
                         note: dbResult.rows[0]?.meter_name || 'no match'
                     });
-                    total += itemCost;
+                    
                     break;
                 }
 
@@ -346,12 +370,12 @@ router.post('/calculate_estimate', async (req, res) => {
                         itemCost = dbResult.rows[0].retail_price * 730 * qty * rate;
                     }
 
-                    breakdown.push({
+                    itemBreakdown.push({
                         name: item.name || 'Public IP Address',
                         cost: parseFloat(itemCost.toFixed(2)),
                         note: dbResult.rows[0]?.meter_name || 'no match'
                     });
-                    total += itemCost;
+                    
                     break;
                 }
 
@@ -376,12 +400,12 @@ router.post('/calculate_estimate', async (req, res) => {
                         itemCost = dbResult.rows[0].retail_price * servers * 730 * rate;
                     }
 
-                    breakdown.push({
+                    itemBreakdown.push({
                         name: item.name || 'Microsoft Defender for Cloud',
                         cost: parseFloat(itemCost.toFixed(2)),
                         note: dbResult.rows[0]?.meter_name || 'no match'
                     });
-                    total += itemCost;
+                    
                     break;
                 }
 
@@ -406,44 +430,393 @@ router.post('/calculate_estimate', async (req, res) => {
                         itemCost = dbResult.rows[0].retail_price * gbPerDay * 30 * rate;
                     }
 
-                    breakdown.push({
+                    itemBreakdown.push({
                         name: item.name || 'Azure Monitor Log Analytics',
                         cost: parseFloat(itemCost.toFixed(2)),
                         note: dbResult.rows[0]?.meter_name || 'no match'
                     });
-                    total += itemCost;
+                    
                     break;
                 }
 
                 // ──────────────────────────────────────────────
-                // FALLBACK — keyword search
+                // AKS — Azure Kubernetes Service
+                // ──────────────────────────────────────────────
+                case 'aks': {
+                    const tier = (item.tier || 'standard').toLowerCase(); // free | standard | automatic
+                    const nodeCount = item.nodeCount || item.quantity || 1;
+                    const nodeVmSku = item.nodeVmSku || item.sku || '';
+
+                    // Cluster management fee (if not free tier)
+                    if (tier !== 'free') {
+                        const tierMap = { standard: 'Standard Uptime SLA', automatic: 'Automatic Hosted Control Plane' };
+                        const meterFilter = tierMap[tier] || 'Standard Uptime SLA';
+                        const clusterSql = `
+                            SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                            FROM azure_prices
+                            WHERE currency_code = 'USD'
+                              AND is_active = TRUE
+                              AND service_name = 'Azure Kubernetes Service'
+                              AND raw_data->>'meterName' ILIKE $1
+                              AND retail_price > 0
+                            ORDER BY retail_price ASC LIMIT 1
+                        `;
+                        const clusterResult = await query(clusterSql, [`%${meterFilter}%`]);
+                        if (clusterResult.rows.length > 0) {
+                            const clusterCost = clusterResult.rows[0].retail_price * 730 * rate;
+                            itemBreakdown.push({
+                                name: (item.name || 'AKS') + ' – Cluster Management',
+                                cost: parseFloat(clusterCost.toFixed(2)),
+                                note: clusterResult.rows[0].meter_name
+                            });
+                            
+                        }
+                    }
+
+                    // Node VM pricing (charged as standard VMs)
+                    if (nodeVmSku && nodeCount > 0) {
+                        const cleanSku = nodeVmSku.replace(/[_\s]+/g, '%').trim();
+                        const vmSql = `
+                            SELECT sku_name, retail_price
+                            FROM azure_prices
+                            WHERE currency_code = 'USD'
+                              AND is_active = TRUE
+                              AND service_name = 'Virtual Machines'
+                              AND arm_region_name = $1
+                              AND sku_name ILIKE $2
+                              AND product_name NOT ILIKE '%Windows%'
+                              AND type = 'Consumption'
+                              AND retail_price > 0
+                              AND product_name NOT ILIKE '%Spot%'
+                            ORDER BY retail_price ASC LIMIT 1
+                        `;
+                        const vmResult = await query(vmSql, [region, `%${cleanSku}%`]);
+                        if (vmResult.rows.length > 0) {
+                            const nodeCost = vmResult.rows[0].retail_price * 730 * nodeCount * rate;
+                            itemBreakdown.push({
+                                name: (item.name || 'AKS') + ` – Nodes (${nodeCount}× ${vmResult.rows[0].sku_name})`,
+                                cost: parseFloat(nodeCost.toFixed(2)),
+                                note: `${nodeCount} node(s) × ${vmResult.rows[0].sku_name}`
+                            });
+                            
+                        }
+                    }
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // REDIS — Azure Cache for Redis
+                // ──────────────────────────────────────────────
+                case 'redis': {
+                    const cacheTier = (item.cacheTier || 'C1').toUpperCase();
+                    const cacheType = (item.cacheType || 'standard').toLowerCase(); // basic | standard | premium
+
+                    const typeProductMap = {
+                        basic: 'Azure Redis Cache Basic',
+                        standard: 'Azure Redis Cache Standard',
+                        premium: 'Azure Redis Cache Premium',
+                        enterprise: 'Azure Redis Cache Enterprise',
+                    };
+                    const productFilter = typeProductMap[cacheType] || 'Azure Redis Cache Standard';
+
+                    const redisSql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'Redis Cache'
+                          AND product_name ILIKE $1
+                          AND sku_name ILIKE $2
+                          AND type = 'Consumption'
+                          AND retail_price > 0
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const redisResult = await query(redisSql, [productFilter, `%${cacheTier}%`]);
+                    let itemCost = 0;
+                    if (redisResult.rows.length > 0) {
+                        itemCost = redisResult.rows[0].retail_price * 730 * qty * rate;
+                    }
+                    itemBreakdown.push({
+                        name: item.name || `Redis Cache – ${cacheTier} ${cacheType}`,
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: redisResult.rows[0]?.sku_name || 'no match'
+                    });
+                    
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // API MANAGEMENT
+                // ──────────────────────────────────────────────
+                case 'api_management': {
+                    const apimTier = (item.tier || 'Developer').toLowerCase();
+                    const tierMap = {
+                        developer: 'Developer', basic: 'Basic', 'basic v2': 'Basic v2',
+                        standard: 'Standard', 'standard v2': 'Standard v2',
+                        premium: 'Premium', 'premium v2': 'Premium v2', consumption: 'Consumption'
+                    };
+                    const tierSku = tierMap[apimTier] || 'Developer';
+
+                    const apimSql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'API Management'
+                          AND sku_name ILIKE $1
+                          AND type = 'Consumption'
+                          AND retail_price > 0
+                          AND raw_data->>'meterName' NOT ILIKE '%Calls%'
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const apimResult = await query(apimSql, [`%${tierSku}%`]);
+                    let itemCost = 0;
+                    if (apimResult.rows.length > 0) {
+                        itemCost = apimResult.rows[0].retail_price * 730 * qty * rate;
+                    }
+                    itemBreakdown.push({
+                        name: item.name || `API Management – ${tierSku}`,
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: apimResult.rows[0]?.meter_name || 'no match'
+                    });
+                    
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // LOAD BALANCER
+                // ──────────────────────────────────────────────
+                case 'load_balancer': {
+                    const lbTier = (item.tier || 'standard').toLowerCase(); // basic | standard
+                    // Azure Load Balancer Standard: ~$0.025/hr for one rule; Basic is free
+                    // These are fixed well-known rates as the DB may not have LB rows
+                    const ratePerHour = lbTier === 'basic' ? 0 : 0.025;
+                    const ruleCount = item.ruleCount || 1;
+                    const rulesRate = lbTier === 'basic' ? 0 : 0.006 * (ruleCount - 1); // first rule free
+                    const itemCost = (ratePerHour + rulesRate) * 730 * qty * rate;
+
+                    // Try DB first
+                    const lbSql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name ILIKE '%Load Balancer%'
+                          AND arm_region_name = $1
+                          AND retail_price > 0
+                          AND type = 'Consumption'
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const lbResult = await query(lbSql, [region]);
+                    let lbCost = itemCost;
+                    if (lbResult.rows.length > 0) {
+                        lbCost = lbResult.rows[0].retail_price * 730 * qty * rate;
+                    }
+
+                    itemBreakdown.push({
+                        name: item.name || `Load Balancer – ${lbTier}`,
+                        cost: parseFloat(lbCost.toFixed(2)),
+                        note: lbResult.rows[0]?.meter_name || (lbTier === 'basic' ? 'Basic tier: free' : 'Standard ~$0.025/hr/rule')
+                    });
+                    
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // APP SERVICE — Azure App Service Plans
+                // ──────────────────────────────────────────────
+                case 'app_service': {
+                    const tier = (item.tier || 'B1').toUpperCase();
+                    const asSql = `
+                        SELECT sku_name, retail_price, raw_data->>'meterName' AS meter_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'Azure App Service'
+                          AND arm_region_name = $1
+                          AND sku_name ILIKE $2
+                          AND type = 'Consumption'
+                          AND retail_price > 0
+                          AND product_name NOT ILIKE '%Windows%'
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const asResult = await query(asSql, [region, `%${tier}%`]);
+                    let itemCost = 0;
+                    if (asResult.rows.length > 0) {
+                        itemCost = asResult.rows[0].retail_price * 730 * qty * rate;
+                    }
+                    itemBreakdown.push({
+                        name: item.name || `App Service – ${tier}`,
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: asResult.rows[0]?.sku_name || 'no match'
+                    });
+                    
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // SQL DATABASE — Azure SQL Database
+                // ──────────────────────────────────────────────
+                case 'sql_database': {
+                    const tier = (item.tier || 'S0').toUpperCase();
+                    const sqlSql = `
+                        SELECT sku_name, retail_price, raw_data->>'meterName' AS meter_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'SQL Database'
+                          AND arm_region_name = $1
+                          AND sku_name ILIKE $2
+                          AND type = 'Consumption'
+                          AND retail_price > 0
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const sqlResult = await query(sqlSql, [region, `%${tier}%`]);
+                    let itemCost = 0;
+                    if (sqlResult.rows.length > 0) {
+                        itemCost = sqlResult.rows[0].retail_price * 730 * qty * rate;
+                    }
+                    itemBreakdown.push({
+                        name: item.name || `SQL Database – ${tier}`,
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: sqlResult.rows[0]?.sku_name || 'no match'
+                    });
+                    
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // COSMOS DB
+                // ──────────────────────────────────────────────
+                case 'cosmos_db': {
+                    const ruPerSecond = item.ruPerSecond || 400;
+                    const storageGB = item.storageGB || 0;
+                    // Standard provisioned throughput: $0.008 per 100 RU/s per hour
+                    const cosmosSql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'Azure Cosmos DB'
+                          AND arm_region_name = $1
+                          AND raw_data->>'meterName' ILIKE '%100 RU%'
+                          AND type = 'Consumption'
+                          AND retail_price > 0
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const cosmosResult = await query(cosmosSql, [region]);
+                    let itemCost = 0;
+                    if (cosmosResult.rows.length > 0) {
+                        // price is per 100 RU/s per hour
+                        itemCost = cosmosResult.rows[0].retail_price * (ruPerSecond / 100) * 730 * rate;
+                    } else {
+                        // fallback: well-known rate
+                        itemCost = 0.008 * (ruPerSecond / 100) * 730 * qty * rate;
+                    }
+                    if (storageGB > 0) {
+                        itemCost += 0.25 * storageGB * rate; // $0.25 per GB/mo
+                    }
+                    itemBreakdown.push({
+                        name: item.name || `Cosmos DB – ${ruPerSecond} RU/s`,
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: cosmosResult.rows[0]?.sku_name || `${ruPerSecond} RU/s provisioned throughput`
+                    });
+                    
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // AZURE FUNCTIONS
+                // ──────────────────────────────────────────────
+                case 'functions': {
+                    const execMillionPerMonth = item.executionsMillions || 1;
+                    const gbSeconds = item.gbSeconds || 400000;
+                    // First 1M executions and 400K GB-s are free; then $0.20 per 1M and $0.000016 per GB-s
+                    const billableExec = Math.max(0, execMillionPerMonth - 1);
+                    const billableGbs = Math.max(0, gbSeconds - 400000);
+                    const fnCost = (billableExec * 0.20 + billableGbs * 0.000016) * qty * rate;
+                    itemBreakdown.push({
+                        name: item.name || 'Azure Functions',
+                        cost: parseFloat(fnCost.toFixed(2)),
+                        note: `${execMillionPerMonth}M executions/mo, ${gbSeconds.toLocaleString()} GB-s`
+                    });
+                    
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // STORAGE (Blob) — quick path
+                // ──────────────────────────────────────────────
+                case 'storage': {
+                    const storageGB = item.capacityGB || item.storageGB || 0;
+                    const tier = (item.accessTier || 'hot').toLowerCase();
+                    const redund = (item.redundancy || 'LRS').toUpperCase();
+                    const skuName = `${tier.charAt(0).toUpperCase()}${tier.slice(1)} ${redund}`;
+                    const storageSql = `
+                        SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
+                        FROM azure_prices
+                        WHERE currency_code = 'USD'
+                          AND is_active = TRUE
+                          AND service_name = 'Storage'
+                          AND arm_region_name = $1
+                          AND product_name = 'General Block Blob v2'
+                          AND sku_name = $2
+                          AND raw_data->>'meterName' ILIKE '%Data Stored%'
+                          AND type = 'Consumption'
+                          AND retail_price > 0
+                        ORDER BY retail_price ASC LIMIT 1
+                    `;
+                    const storageResult = await query(storageSql, [region, skuName]);
+                    let itemCost = storageResult.rows.length > 0
+                        ? storageResult.rows[0].retail_price * storageGB * rate
+                        : 0;
+                    itemBreakdown.push({
+                        name: item.name || `Blob Storage – ${storageGB} GB (${skuName})`,
+                        cost: parseFloat(itemCost.toFixed(2)),
+                        note: storageResult.rows[0]?.sku_name || `${skuName} capacity`
+                    });
+                    
+                    break;
+                }
+
+                // ──────────────────────────────────────────────
+                // FALLBACK — keyword search (fast, region-scoped)
                 // ──────────────────────────────────────────────
                 default: {
                     const keyword = item.sku || item.name || item.type || '';
+                    // Region-scoped first for speed; fall back to global only if nothing found
                     const sql = `
                         SELECT retail_price, raw_data->>'meterName' AS meter_name, sku_name
                         FROM azure_prices
                         WHERE currency_code = 'USD'
                           AND is_active = TRUE
-                          AND (sku_name ILIKE $1 OR product_name ILIKE $1 OR service_name ILIKE $1)
+                          AND arm_region_name = $2
+                          AND (sku_name ILIKE $1 OR service_name ILIKE $1)
                           AND retail_price > 0
                         ORDER BY retail_price ASC LIMIT 1
                     `;
-                    const dbResult = await query(sql, [`%${keyword}%`]);
+                    const dbResult = await query(sql, [`%${keyword}%`, region]);
                     let itemCost = 0;
+                    let matchName = 'no match';
                     if (dbResult.rows.length > 0) {
                         itemCost = dbResult.rows[0].retail_price * 730 * rate;
+                        matchName = dbResult.rows[0].sku_name || matchName;
                     }
 
-                    breakdown.push({
+                    itemBreakdown.push({
                         name: item.name || 'Unknown Component',
                         cost: parseFloat(itemCost.toFixed(2)),
-                        note: dbResult.rows[0]?.sku_name || 'no match'
+                        note: matchName
                     });
-                    total += itemCost;
                 }
             }
+            return itemBreakdown;
         }
+
+        // Run all items in parallel
+        const allBreakdowns = await Promise.all(items.map(item => processItem(item)));
+        const breakdown = allBreakdowns.flat();
+        const total = breakdown.reduce((sum, b) => sum + b.cost, 0);
 
         res.json({
             breakdown,

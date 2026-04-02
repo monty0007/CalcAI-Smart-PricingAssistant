@@ -45,8 +45,14 @@ export const POPULAR_SERVICES = [
     { serviceName: 'Azure Functions', serviceFamily: 'Compute', description: 'Serverless compute service', popular: true },
     { serviceName: 'Azure Kubernetes Service', serviceFamily: 'Compute', description: 'Managed Kubernetes clusters', popular: true },
     { serviceName: 'Azure Container Apps', serviceFamily: 'Compute', description: 'Serverless container hosting', popular: true },
+    { serviceName: 'Virtual Machine Scale Sets', serviceFamily: 'Compute', description: 'Auto-scaling VM groups', popular: true },
+    { serviceName: 'Azure Container Instances', serviceFamily: 'Compute', description: 'Fast serverless containers', popular: true },
+    { serviceName: 'Azure Dedicated Host', serviceFamily: 'Compute', description: 'Isolated physical servers for VMs' },
     { serviceName: 'Azure Spring Cloud', serviceFamily: 'Compute', description: 'Spring Boot apps on Azure' },
     { serviceName: 'Azure Batch', serviceFamily: 'Compute', description: 'Large-scale parallel computing' },
+    { serviceName: 'Azure Service Fabric', serviceFamily: 'Compute', description: 'Distributed systems & microservices' },
+    { serviceName: 'Azure Red Hat OpenShift', serviceFamily: 'Compute', description: 'Managed OpenShift clusters' },
+    { serviceName: 'Azure CycleCloud', serviceFamily: 'Compute', description: 'HPC cluster management' },
     { serviceName: 'Cloud Services', serviceFamily: 'Compute', description: 'Classic cloud service hosting' },
 
     // Storage

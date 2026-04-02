@@ -89,6 +89,84 @@ app.post('/api/logs', (req, res) => {
     res.sendStatus(200);
 });
 
+// ── AI Chat Proxy ────────────────────────────────────────────────────────────
+// Keeps the AI key server-side. Routes through Chat Completions API by default.
+app.get('/api/ai/status', (_req, res) => {
+    const endpoint = process.env.AZURE_OPENAI_ENDPOINT || process.env.AI_ENDPOINT;
+    const apiKey   = process.env.AZURE_OPENAI_API_KEY  || process.env.AI_API_KEY;
+    const configured = Boolean(endpoint && apiKey);
+    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT || process.env.AI_DEPLOYMENT || process.env.AI_MODEL || 'gpt-4o-mini';
+    res.json({ configured, model: deployment });
+});
+
+app.post('/api/ai/chat', async (req, res) => {
+    const rawEndpoint  = process.env.AZURE_OPENAI_ENDPOINT || process.env.AI_ENDPOINT;
+    const apiKey       = process.env.AZURE_OPENAI_API_KEY  || process.env.AI_API_KEY;
+    const deployment   = process.env.AZURE_OPENAI_DEPLOYMENT || process.env.AI_DEPLOYMENT || process.env.AI_MODEL || 'gpt-4o-mini';
+    const apiVersion   = process.env.AZURE_OPENAI_API_VERSION || '2024-12-01-preview';
+
+    if (!rawEndpoint || !apiKey) {
+        return res.status(503).json({ error: 'AI not configured on server' });
+    }
+
+    const isAzure = rawEndpoint.includes('azure.com') || rawEndpoint.includes('azure.microsoft.com');
+    const base = rawEndpoint.replace(/\/$/, '');
+
+    // Always use Chat Completions — it works on all api-versions including 2024-12-01-preview.
+    // Build: <base>/openai/deployments/<deployment>/chat/completions?api-version=<version>
+    let endpoint;
+    if (rawEndpoint.includes('/chat/completions')) {
+        endpoint = rawEndpoint; // already a full Chat Completions URL
+    } else {
+        const cleanBase = base.includes('/openai/') ? base.split('/openai/')[0] : base;
+        endpoint = `${cleanBase}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${apiVersion}`;
+    }
+
+    console.log(`[AI Proxy] → ${endpoint}`);
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(isAzure ? { 'api-key': apiKey } : { 'Authorization': `Bearer ${apiKey}` }),
+    };
+
+    // Forward Chat Completions payload, injecting deployment as model
+    const payload = { ...req.body, model: deployment };
+
+    try {
+        const aiRes = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+        });
+
+        if (!aiRes.ok) {
+            const errText = await aiRes.text();
+            console.error('[AI Proxy] Error:', aiRes.status, errText);
+            return res.status(aiRes.status).json({ error: `AI API error ${aiRes.status}`, detail: errText });
+        }
+
+        // SSE streaming — pipe directly; Chat Completions SSE = what frontend already parses
+        if (payload.stream) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            const reader = aiRes.body.getReader();
+            const decoder = new TextDecoder();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) { res.end(); break; }
+                res.write(decoder.decode(value, { stream: true }));
+            }
+        } else {
+            // JSON — pass through directly; no normalisation needed for Chat Completions
+            const data = await aiRes.json();
+            res.json(data);
+        }
+    } catch (err) {
+        console.error('[AI Proxy] Fetch error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 /**
  * GET /api/prices
  * Query cached pricing data

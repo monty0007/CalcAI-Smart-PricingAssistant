@@ -24,10 +24,12 @@ CalcAI has evolved from a simple pricing fetcher into a comprehensive, AI-powere
 
 | Category | Features Included |
 |----------|-------------------|
-| **Cloud Estimator** | Browse 100+ Azure services with real-time pricing. Build line-by-line cost breakdowns (Compute + OS + Disks + Bandwidth) and export to `.xlsx` (Excel). |
+| **Cloud Estimator** | Browse 100+ Azure services with real-time pricing. Build line-by-line cost breakdowns (Compute + OS + Disks + Bandwidth) and export to `.xlsx` (Excel). Storage Accounts include all Azure portal filters: Type, Performance, Access Tier (Hot/Cool/Cold/Archive), Redundancy (LRS/ZRS/GRS/RA-GRS), Capacity, and Operations. |
 | **VM Comparison** | Dedicated page to compare Virtual Machine pricing across Azure regions side-by-side with Linux/Windows toggles and multi-currency support. |
-| **Smart AI Assistant** | Conversational assistant powered by OpenAI. Ask complex architectural questions (e.g. *"1 D8s v5 Windows server with 5 GB data transfer in Central India"*). Supports VMs, App Service, Storage, SQL Database, Cosmos DB, Functions, Bandwidth, Defender, and more via a type-routed `calculate_estimate` tool with zone-aware bandwidth pricing. |
-| **AI Tool Execution** | The AI calls the `calculate_estimate` backend tool to pull live pricing from PostgreSQL and return exact cost totals — no hallucinated prices. |
+| **Smart AI Assistant** | Conversational assistant powered by OpenAI. Ask complex architectural questions (e.g. *"AKS with 3 D4s v3 nodes in Central India"* or *"Redis C1 Standard + 1TB blob storage Hot LRS East US"*). Supports VMs, AKS, Redis Cache, API Management, Load Balancer, App Service, SQL Database, Cosmos DB, Functions, Storage, Bandwidth, and Defender via a type-routed `calculate_estimate` tool. |
+| **AI Tool Execution** | The AI calls the `calculate_estimate` backend tool to pull live pricing from PostgreSQL in **parallel** and return exact cost totals — no hallucinated prices. |
+| **Streaming AI Responses** | Responses stream token-by-token via SSE. A named **thinking indicator** shows what the AI is doing in real-time (e.g. *"Fetching live pricing for: AKS, Redis…"*). |
+| **Follow-up Suggestion Chips** | After every estimate response, 2–3 contextual follow-up suggestions appear (region comparisons, reserved pricing, budget alternatives) as one-click chips. |
 | **Persistent AI Chat** | 50-message context window per session. Chat histories saved in the database for logged-in users with auto-generated session titles. |
 | **User Authentication** | Firebase Auth with Email/Password, Google OAuth, and Microsoft Account login flows integrated end-to-end. |
 | **Saved Estimates** | Authenticated users save, load, and edit cloud estimates from their personal dashboard. Guests get `localStorage` fallback. |
@@ -59,7 +61,7 @@ The backend runs on **PostgreSQL** with high-performance B-Tree and expression i
 | `/api/vm-list` | Paginated VM list with hardware specs + live prices + currency conversion |
 | `/api/vm-compare` | Regional price comparison for up to 2 SKUs |
 | `/api/best-vm-prices` | Cheapest price per SKU across all regions |
-| `/api/tools/calculate_estimate` | AI tool endpoint — computes costs for VMs, Storage, SQL, App Service, etc. |
+| `/api/tools/calculate_estimate` | AI tool endpoint — parallel-computes costs for VMs, AKS, Redis, APIM, Load Balancer, App Service, SQL Database, Cosmos DB, Functions, Storage, Bandwidth, Defender |
 | `/api/chats` | CRUD for AI chat sessions and messages |
 | `/api/estimates` | Save, load, update, delete user estimates |
 | `/api/subscriptions` | Stripe checkout/portal/webhooks + Razorpay order/verify |
@@ -323,7 +325,11 @@ The application is production-ready as a full-stack pricing, estimation, and AI 
 - Firebase authentication + JWT auth with Email, Google, and Microsoft logins.
 - PostgreSQL with expression indexes — sub-10ms VM search response times.
 - AI assistant with enforced tool-calling against live database prices — no hallucinations.
+- AI tool covers 15 service types (VM, AKS, Redis, APIM, Load Balancer, App Service, SQL, Cosmos DB, Functions, Storage, Bandwidth, Defender, and more) with **parallel execution** via `Promise.all`.
+- Streaming SSE responses with a named thinking indicator and contextual follow-up suggestion chips.
+- Structured system prompt with explicit extraction rules, region mappings, and 6 few-shot examples.
 - AI chat sessions with 50-message context, auto-titling, and persistent history.
+- Storage Accounts modal with all Azure portal filters (Type, Performance, Access Tier, Redundancy, Capacity, Operations).
 - Subscription tiers (Free / Plus ₹249 / Pro ₹499) with **Stripe** (international) and **Razorpay** (INR) payment providers.
 - Usage-tracked tier limits: Free = 50 AI calls/day + 3 estimates, Plus = 300/month + 20, Pro = unlimited.
 - Admin dashboard with user management, platform stats, support ticket triage, and sync job runner with live logs.
